@@ -6,7 +6,7 @@ import {
 import {
   Dumbbell, Plus, Minus, Check, Clock, TrendingUp, History as HistoryIcon,
   ListChecks, Upload, Download, X, Search, Flame, Trash2,
-  Play, RotateCcw, Settings as SettingsIcon, Sparkles,
+  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil,
 } from "lucide-react";
 import { C, MONO, SANS } from "./lib/theme";
 import { uid, num, epley, fmtDate, fmtShort, dayKey, setsForExercise } from "./lib/helpers";
@@ -152,6 +152,8 @@ const LIB = [
   ["Hanging Leg Raise", "Core", "bodyweight"],
 ].map(([name, group, type]) => ({ name, group, type }));
 
+const CATALOG_EXCLUDE = new Set(["811h 41m", "peloton bike"]);
+
 const DEFAULT_GYMS = [
   { id: "main", name: "Main Gym" },
   { id: "hoa", name: "HOA Gym" },
@@ -272,6 +274,8 @@ export default function App() {
   const [pickerQ, setPickerQ] = useState("");
   const [toast, setToast] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [editingRoutineId, setEditingRoutineId] = useState(null);
+  const [editingName, setEditingName] = useState("");
 
   // rest timer
   const [rest, setRest] = useState({ left: 0, total: 0, running: false });
@@ -310,7 +314,14 @@ export default function App() {
     LIB.forEach((e) => map.set(e.name, e));
     meta.customExercises.forEach((e) => map.set(e.name, e));
     workouts.forEach((w) => w.exercises.forEach((e) => {
-      if (!map.has(e.name)) map.set(e.name, { name: e.name, group: "Other", type: "barbell" });
+      if (map.has(e.name)) return;
+      if (CATALOG_EXCLUDE.has(e.name.toLowerCase())) return;
+      // skip exercises with no logged weight/reps anywhere (cardio/placeholder rows)
+      const hasWeighted = w.exercises
+        .filter((x) => x.name === e.name)
+        .some((x) => x.sets.some((s) => s.weight > 0 || s.reps > 0));
+      if (!hasWeighted) return;
+      map.set(e.name, { name: e.name, group: "Other", type: "barbell" });
     }));
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [workouts, meta.customExercises]);
@@ -525,6 +536,8 @@ export default function App() {
 
   const deleteWorkout = (id) => setWorkouts((prev) => prev.filter((w) => w.id !== id));
   const deleteRoutine = (id) => setMeta((m) => ({ ...m, routines: m.routines.filter((r) => r.id !== id) }));
+  const renameRoutine = (id, name) =>
+    setMeta((m) => ({ ...m, routines: m.routines.map((r) => (r.id === id ? { ...r, name } : r)) }));
 
   /* ------------------------------ screens -------------------------------- */
   if (loading)
@@ -852,25 +865,55 @@ export default function App() {
   }
 
   function RoutinesScreen() {
-    const RoutineCard = (r) => (
-      <div key={r.id} style={{ ...cardStatic, marginBottom: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ color: C.ink, fontSize: 15, fontWeight: 600 }}>{r.name}</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={() => startSession(r)} style={{ ...miniBtn, color: C.amber, borderColor: C.amber }}><Play size={14} /></button>
-            <button onClick={() => deleteRoutine(r.id)} style={miniBtn}><Trash2 size={14} /></button>
+    const RoutineCard = (r) => {
+      const isEditing = editingRoutineId === r.id;
+      return (
+        <div key={r.id} style={{ ...cardStatic, marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            {isEditing ? (
+              <input
+                autoFocus
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                onBlur={() => {
+                  const name = editingName.trim();
+                  if (name) renameRoutine(r.id, name);
+                  setEditingRoutineId(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") setEditingRoutineId(null);
+                }}
+                style={{
+                  flex: 1, fontSize: 15, fontWeight: 600, color: C.ink, background: "transparent",
+                  border: "none", borderBottom: `1.5px solid ${C.amber}`, outline: "none", padding: "2px 0",
+                }}
+              />
+            ) : (
+              <div
+                onClick={() => { setEditingRoutineId(r.id); setEditingName(r.name); }}
+                style={{ color: C.ink, fontSize: 15, fontWeight: 600, cursor: "text", display: "flex", alignItems: "center", gap: 6 }}
+              >
+                {r.name}
+                <Pencil size={11} color={C.muted} />
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <button onClick={() => startSession(r)} style={{ ...miniBtn, color: C.amber, borderColor: C.amber }}><Play size={14} /></button>
+              <button onClick={() => deleteRoutine(r.id)} style={miniBtn}><Trash2 size={14} /></button>
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            {r.exercises.map((e, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", color: C.muted, fontSize: 13 }}>
+                <span style={{ color: C.ink }}>{e.name}</span>
+                <span style={{ fontFamily: MONO }}>{e.sets}×{e.reps}</span>
+              </div>
+            ))}
           </div>
         </div>
-        <div style={{ marginTop: 8 }}>
-          {r.exercises.map((e, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", color: C.muted, fontSize: 13 }}>
-              <span style={{ color: C.ink }}>{e.name}</span>
-              <span style={{ fontFamily: MONO }}>{e.sets}×{e.reps}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+      );
+    };
     return (
       <div>
         <Header title="Routines" sub={`${meta.routines.length} saved`} />
