@@ -5,58 +5,13 @@ import {
 } from "recharts";
 import {
   Dumbbell, Plus, Minus, Check, Clock, TrendingUp, History as HistoryIcon,
-  ListChecks, Upload, Download, X, Search, Flame, ChevronRight, Trophy, Trash2,
-  Play, RotateCcw, Settings as SettingsIcon, CheckCheck, Sparkles,
+  ListChecks, Upload, Download, X, Search, Flame, Trash2,
+  Play, RotateCcw, Settings as SettingsIcon, Sparkles,
 } from "lucide-react";
-
-/* ----------------------------- design tokens ----------------------------- */
-// "Chalk" light/blueprint direction blended with picks from the other mocks:
-// paper-white surfaces, cobalt accent, mono numerals for data, friendly rounding.
-// NOTE: token name `amber` now holds the cobalt ACCENT (kept the key name to limit
-// churn); `cyan` = teal data color; `pr` = amber, reserved for PR pops only.
-const C = {
-  bg: "#F4F3EF",
-  surface: "#FFFFFF",
-  surface2: "#F0EFEA",
-  line: "#E3E1D9",
-  ink: "#16181C",
-  muted: "#777C86",
-  amber: "#2563EB",     // primary accent (cobalt)
-  amberDim: "#E6ECFD",  // accent tint (chips, active states)
-  cyan: "#1F8F7E",      // data / secondary (teal)
-  cyanDim: "#E2F1EE",   // teal tint
-  good: "#16A36B",      // completed set (green)
-  bad: "#E5483D",       // destructive
-  pr: "#F59E0B",        // PR badge pop (amber)
-  onAccent: "#FFFFFF",  // text on accent/good
-  onPr: "#3A2A05",      // text on PR amber
-  shadow: "0 1px 3px rgba(20,22,30,.06)",
-};
-const MONO = "ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
-const SANS =
-  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
-
-/* ------------------------------- helpers --------------------------------- */
-const uid = () => Math.random().toString(36).slice(2, 10);
-const num = (v) => {
-  if (v === null || v === undefined) return 0;
-  const n = parseFloat(String(v).replace(/,/g, "").trim());
-  return isNaN(n) ? 0 : n;
-};
-// estimated 1RM (Epley). Ignore impossible/typo rep counts (>30) so one bad
-// entry can't create a fake PR; Epley is also meaningless past ~30 reps.
-const epley = (w, r) => (r > 0 && r <= 30 ? w * (1 + r / 30) : 0);
-const fmtDate = (iso) => {
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-};
-const fmtShort = (iso) => {
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-};
-const dayKey = (iso) => new Date(iso).toISOString().slice(0, 10);
+import { C, MONO, SANS } from "./lib/theme";
+import { uid, num, epley, fmtDate, fmtShort, dayKey, setsForExercise } from "./lib/helpers";
+import WorkoutListScreen from "./components/WorkoutListScreen";
+import WorkoutDetailScreen from "./components/WorkoutDetailScreen";
 
 /* ------------------------------ storage ---------------------------------- */
 // Persists to localStorage when running as a real PWA, and to window.storage
@@ -224,29 +179,6 @@ const STARTERS = {
 };
 
 /* ----------------------- progression / analytics ------------------------- */
-function setsForExercise(workouts, name) {
-  // returns sessions: [{date, sets:[{weight,reps}], best e1RM}]
-  const sessions = [];
-  for (const w of workouts) {
-    const ex = w.exercises.find((e) => e.name === name);
-    if (!ex) continue;
-    const sets = ex.sets.filter((s) => s.reps > 0);
-    if (!sets.length) continue;
-    let best = 0,
-      bestSet = null;
-    for (const s of sets) {
-      const e = epley(s.weight, s.reps);
-      if (e > best) {
-        best = e;
-        bestSet = s;
-      }
-    }
-    sessions.push({ date: w.date, sets, e1rm: best, bestSet });
-  }
-  sessions.sort((a, b) => new Date(a.date) - new Date(b.date));
-  return sessions;
-}
-
 function suggestTarget(workouts, name, settings) {
   const sessions = setsForExercise(workouts, name);
   if (!sessions.length) return null;
@@ -333,7 +265,9 @@ export default function App() {
   const loaded = useRef(false);
 
   // active session
-  const [session, setSession] = useState(null); // {name, startedAt, exercises:[{name,sets:[{weight,reps,done}]}]}
+  const [session, setSession] = useState(null); // {name, startedAt, exercises:[{id,name,sets:[{weight,reps,done}]}]}
+  const [workoutScreen, setWorkoutScreen] = useState("list"); // "list" | "detail"
+  const [exIdx, setExIdx] = useState(0);
   const [picker, setPicker] = useState(false);
   const [pickerQ, setPickerQ] = useState("");
   const [toast, setToast] = useState(null);
@@ -486,9 +420,11 @@ export default function App() {
       const n = re.sets || target?.sets || 3;
       const weight = re.weight || target?.weight || 0;
       const reps = re.reps || target?.reps || settings.repLow;
-      return { name: re.name, sets: Array.from({ length: n }, () => ({ weight, reps, done: false })) };
+      return { id: uid(), name: re.name, sets: Array.from({ length: n }, () => ({ weight, reps, done: false })) };
     });
     setSession({ name: routine?.name || "Quick Session", startedAt: Date.now(), routine: !!routine, gym: routine?.gym || meta.activeGym, exercises });
+    setWorkoutScreen("list");
+    setExIdx(0);
     setTab("today");
   };
 
@@ -516,11 +452,23 @@ export default function App() {
     const reps = target?.reps ?? settings.repLow;
     setSession((s) => ({
       ...s,
-      exercises: [...s.exercises, { name, sets: Array.from({ length: n }, () => ({ weight, reps, done: false })) }],
+      exercises: [...s.exercises, { id: uid(), name, sets: Array.from({ length: n }, () => ({ weight, reps, done: false })) }],
     }));
     setPicker(false);
     setPickerQ("");
   };
+
+  const reorderExercises = (newExercises) =>
+    setSession((s) => ({ ...s, exercises: newExercises }));
+
+  const removeSetRow = (ei, si) =>
+    setSession((s) => {
+      const ex = s.exercises.map((e, i) => {
+        if (i !== ei || e.sets.length <= 1) return e;
+        return { ...e, sets: e.sets.filter((_, j) => j !== si) };
+      });
+      return { ...s, exercises: ex };
+    });
 
   const updateSet = (ei, si, patch) =>
     setSession((s) => {
@@ -538,27 +486,8 @@ export default function App() {
     }
   };
 
-  const addSetRow = (ei) =>
-    setSession((s) => {
-      const ex = s.exercises.map((e, i) => {
-        if (i !== ei) return e;
-        const last = e.sets[e.sets.length - 1] || { weight: 0, reps: settings.repLow };
-        return { ...e, sets: [...e.sets, { weight: last.weight, reps: last.reps, done: false }] };
-      });
-      return { ...s, exercises: ex };
-    });
-
   const removeExercise = (ei) =>
     setSession((s) => ({ ...s, exercises: s.exercises.filter((_, i) => i !== ei) }));
-
-  // Confirm-all: mark every set of one exercise done in a single tap.
-  const completeAllSets = (ei) =>
-    setSession((s) => ({
-      ...s,
-      exercises: s.exercises.map((e, i) =>
-        i !== ei ? e : { ...e, sets: e.sets.map((st) => ({ ...st, done: true })) }
-      ),
-    }));
 
   const finishSession = () => {
     const exercises = session.exercises
@@ -568,24 +497,18 @@ export default function App() {
     const w = { id: uid(), name: session.name, date: new Date().toISOString(), gym: session.gym || meta.activeGym, exercises };
     setWorkouts((prev) => [w, ...prev]);
     setSession(null);
+    setWorkoutScreen("list");
+    setExIdx(0);
     setRest({ left: 0, total: 0, running: false });
     flash("Workout saved.");
     setTab("history");
   };
 
-  // Mark every set done and save in one step (no per-set tapping needed).
-  const confirmAllAndFinish = () => {
-    if (!session) return;
-    const exercises = session.exercises
-      .map((e) => ({ name: e.name, sets: e.sets.filter((s) => s.reps > 0).map((s) => ({ ...s, done: true })) }))
-      .filter((e) => e.sets.length);
-    if (!exercises.length) { setSession(null); flash("Session discarded — no sets."); return; }
-    const w = { id: uid(), name: session.name, date: new Date().toISOString(), gym: session.gym || meta.activeGym, exercises };
-    setWorkouts((prev) => [w, ...prev]);
+  const discardSession = () => {
     setSession(null);
+    setWorkoutScreen("list");
+    setExIdx(0);
     setRest({ left: 0, total: 0, running: false });
-    flash("Workout saved.");
-    setTab("history");
   };
 
   const saveAsRoutine = () => {
@@ -617,14 +540,14 @@ export default function App() {
     <Shell>
       {/* toast */}
       {toast && (
-        <div style={{ position: "fixed", top: 14, left: "50%", transform: "translateX(-50%)", background: C.amber, color: C.onAccent, padding: "9px 16px", borderRadius: 999, fontSize: 13, fontWeight: 600, zIndex: 50, boxShadow: "0 6px 20px rgba(0,0,0,.4)" }}>
+        <div style={{ position: "fixed", top: "calc(14px + env(safe-area-inset-top))", left: "50%", transform: "translateX(-50%)", background: C.amber, color: C.onAccent, padding: "9px 16px", borderRadius: 999, fontSize: 13, fontWeight: 600, zIndex: 50, boxShadow: "0 6px 20px rgba(0,0,0,.4)" }}>
           {toast}
         </div>
       )}
 
       {/* rest timer bar */}
       {rest.running && (
-        <div style={{ position: "fixed", bottom: 70, left: 0, right: 0, maxWidth: 480, margin: "0 auto", padding: "0 16px", zIndex: 40 }}>
+        <div style={{ position: "fixed", bottom: "calc(70px + env(safe-area-inset-bottom))", left: 0, right: 0, maxWidth: 480, margin: "0 auto", padding: "0 16px", zIndex: 40 }}>
           <div style={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 14, padding: "10px 14px", display: "flex", alignItems: "center", gap: 12 }}>
             <Clock size={18} color={C.cyan} />
             <div style={{ fontFamily: MONO, fontSize: 20, color: C.ink, fontVariantNumeric: "tabular-nums", minWidth: 56 }}>
@@ -639,10 +562,35 @@ export default function App() {
         </div>
       )}
 
-      <div style={{ padding: "16px 16px 92px" }}>
+      <div style={{ padding: `calc(16px + env(safe-area-inset-top)) 16px ${rest.running ? 160 : 92}px` }}>
         {tab === "today" &&
           (session ? (
-            <SessionScreen />
+            workoutScreen === "list" ? (
+              <WorkoutListScreen
+                session={session}
+                workouts={workouts}
+                catalog={catalog}
+                onOpen={(ei) => { setExIdx(ei); setWorkoutScreen("detail"); }}
+                onReorder={reorderExercises}
+                onRemoveExercise={removeExercise}
+                onAddExercise={() => setPicker(true)}
+                onSaveAsRoutine={saveAsRoutine}
+                onDiscard={discardSession}
+              />
+            ) : (
+              <WorkoutDetailScreen
+                session={session}
+                workouts={workouts}
+                exIdx={exIdx}
+                catalog={catalog}
+                onUpdateSet={updateSet}
+                onToggleSet={completeSet}
+                onRemoveSet={removeSetRow}
+                onBack={() => setWorkoutScreen("list")}
+                onJump={setExIdx}
+                onFinish={finishSession}
+              />
+            )
           ) : (
             <TodayHome />
           ))}
@@ -796,95 +744,6 @@ export default function App() {
         </div>
         <div style={{ color: C.muted, fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
           Tip: tap <b>Backup</b> to hand your history to the Gym Coach in Claude, then drop the routines it sends back in via <b>Add coach routines</b>.
-        </div>
-      </div>
-    );
-  }
-
-  function SessionScreen() {
-    const elapsed = Math.floor((Date.now() - session.startedAt) / 60000);
-    return (
-      <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div>
-            <input
-              key={session.startedAt}
-              defaultValue={session.name}
-              onBlur={(e) => setSession((s) => ({ ...s, name: e.target.value }))}
-              style={{ background: "transparent", border: "none", outline: "none", color: C.ink, fontSize: 22, fontWeight: 700, width: "100%" }}
-            />
-            <div style={{ color: C.muted, fontSize: 12 }}>{elapsed} min · {session.exercises.length} exercises</div>
-          </div>
-          <button onClick={finishSession} style={{ ...primaryBtn, width: "auto", padding: "10px 16px", margin: 0 }}>
-            <Check size={18} /> Finish
-          </button>
-        </div>
-
-        {session.exercises.map((ex, ei) => {
-          const target = suggestTarget(workouts, ex.name, settings);
-          const bestE1RM = Math.max(0, ...setsForExercise(workouts, ex.name).map((s) => s.e1rm));
-          return (
-            <div key={ei} style={{ ...cardStatic, marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ color: C.ink, fontSize: 16, fontWeight: 700 }}>{ex.name}</div>
-                  {target && (
-                    <div style={{ color: C.cyan, fontSize: 12, marginTop: 2 }}>
-                      Target {target.sets}×{target.reps} @ {target.weight}{U} · {target.note}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => completeAllSets(ei)} style={{ ...miniBtn, color: C.good, borderColor: C.good }} aria-label="complete all sets"><CheckCheck size={14} /> all</button>
-                  <button onClick={() => removeExercise(ei)} style={miniBtn}><X size={14} /></button>
-                </div>
-              </div>
-
-              {/* set rows */}
-              <div style={{ marginTop: 12 }}>
-                <div style={{ display: "flex", color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, paddingBottom: 6 }}>
-                  <div style={{ width: 28 }}>Set</div>
-                  <div style={{ flex: 1, textAlign: "center" }}>Weight ({U})</div>
-                  <div style={{ flex: 1, textAlign: "center" }}>Reps</div>
-                  <div style={{ width: 44 }} />
-                </div>
-                {ex.sets.map((st, si) => {
-                  const isPR = bestE1RM > 0 && epley(st.weight, st.reps) > bestE1RM && st.reps > 0;
-                  return (
-                    <div key={si} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0", borderTop: `1px solid ${C.line}` }}>
-                      <div style={{ width: 28, fontFamily: MONO, color: C.muted }}>{si + 1}</div>
-                      <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
-                        <Stepper value={st.weight} step={settings.increment} onChange={(v) => updateSet(ei, si, { weight: v })} />
-                      </div>
-                      <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
-                        <Stepper value={st.reps} step={1} onChange={(v) => updateSet(ei, si, { reps: v })} />
-                      </div>
-                      <button onClick={() => completeSet(ei, si)} style={{ width: 40, height: 40, borderRadius: 12, border: `1px solid ${st.done ? C.good : C.line}`, background: st.done ? C.good : "transparent", color: st.done ? C.onAccent : C.muted, display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-                        <Check size={18} />
-                        {isPR && <span style={{ position: "absolute", top: -8, right: -8, background: C.pr, color: C.onPr, fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 999 }}>PR</span>}
-                      </button>
-                    </div>
-                  );
-                })}
-                <button onClick={() => addSetRow(ei)} style={{ ...ghostBtn, width: "100%", marginTop: 8, justifyContent: "center" }}>
-                  <Plus size={16} /> Add set
-                </button>
-              </div>
-            </div>
-          );
-        })}
-
-        <button onClick={() => setPicker(true)} style={{ ...card, justifyContent: "center", color: C.amber }}>
-          <Plus size={18} /> Add exercise
-        </button>
-
-        <button onClick={confirmAllAndFinish} style={{ ...primaryBtn, background: C.good, boxShadow: "0 2px 8px rgba(22,163,107,.22)" }}>
-          <CheckCheck size={18} /> Confirm all sets &amp; finish
-        </button>
-
-        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <button onClick={saveAsRoutine} style={{ ...ghostBtn, flex: 1, justifyContent: "center" }}>Save as routine</button>
-          <button onClick={() => { setSession(null); setRest({ left: 0, total: 0, running: false }); }} style={{ ...ghostBtn, flex: 1, justifyContent: "center", color: C.bad }}>Discard</button>
         </div>
       </div>
     );
@@ -1091,5 +950,5 @@ const cardStatic = { background: C.surface, border: `1px solid ${C.line}`, borde
 const rowBtn = { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, padding: "12px 2px", cursor: "pointer", textAlign: "left" };
 const miniBtn = { background: C.surface2, border: `1px solid ${C.line}`, color: C.muted, borderRadius: 10, padding: "6px 8px", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 };
 const emptyBox = { ...cardStatic, textAlign: "center", padding: "28px 18px", marginTop: 12 };
-const navWrap = { position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 480, margin: "0 auto", background: C.surface, borderTop: `1px solid ${C.line}`, display: "flex", padding: "8px 0 12px", zIndex: 30, boxShadow: "0 -2px 12px rgba(20,22,30,.05)" };
+const navWrap = { position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 480, margin: "0 auto", background: C.surface, borderTop: `1px solid ${C.line}`, display: "flex", padding: "8px 0 calc(12px + env(safe-area-inset-bottom))", zIndex: 30, boxShadow: "0 -2px 12px rgba(20,22,30,.05)" };
 const navBtn = (active) => ({ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", background: "transparent", border: "none", color: active ? C.amber : C.muted, cursor: "pointer", padding: "4px 0" });
