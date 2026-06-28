@@ -67,7 +67,7 @@ export default function HistoryPanel({ sessions }) {
       </div>
 
       {chartData.length > 1 && (
-        <div style={{ flex: 1, padding: "6px 8px 4px", minHeight: 56 }}>
+        <div style={{ height: 90, flexShrink: 0, padding: "6px 8px 4px" }}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 4 }}>
               <YAxis domain={[yMin, yMax]} hide />
