@@ -6,12 +6,14 @@ import {
 import {
   Dumbbell, Plus, Minus, Check, Clock, TrendingUp, History as HistoryIcon,
   ListChecks, Upload, Download, X, Search, Flame, Trash2,
-  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil,
+  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil, Brain, Heart,
 } from "lucide-react";
 import { C, MONO, SANS } from "./lib/theme";
 import { uid, num, epley, fmtDate, fmtShort, dayKey, setsForExercise } from "./lib/helpers";
 import WorkoutListScreen from "./components/WorkoutListScreen";
 import WorkoutDetailScreen from "./components/WorkoutDetailScreen";
+import CoachScreen from "./components/CoachScreen";
+import { muscleOf } from "./lib/coach";
 
 /* ------------------------------ storage ---------------------------------- */
 // Persists to localStorage when running as a real PWA, and to window.storage
@@ -121,6 +123,56 @@ function parseStrong(csvText) {
   }));
   workouts.sort((a, b) => new Date(b.date) - new Date(a.date));
   return { workouts, unit, count: workouts.length, repaired };
+}
+
+/* --------------------------- known data repairs --------------------------- */
+// Specific corrupt rows in the original Strong export (fat-fingered weights/reps).
+// Matched by workout date + exercise + set number + the exact bad value, so this
+// is idempotent and can run on every load and import.
+const CSV_FIXES = [
+  { d: "2025-06-15", e: "High Row (Plated)", s: 3, f: "weight", bad: 2300, good: 230 },
+  { d: "2025-08-03", e: "Bicep Curl (Cable)", s: 2, f: "weight", bad: 62.56, good: 62.5 },
+  { d: "2025-08-15", e: "Deadlift (Barbell)", s: 2, f: "reps", bad: 64, good: 6 },
+  { d: "2025-08-17", e: "Triceps Pushdown (Cable - Straight Bar)", s: 1, f: "weight", bad: 67.51, good: 67.5 },
+  { d: "2025-11-26", e: "High Row (Plated)", s: 3, f: "weight", bad: 2300, good: 230 },
+  { d: "2025-12-29", e: "Leg Extension (Machine)", s: 3, f: "weight", bad: 1904, good: 190 },
+];
+// Junk "exercises" from the corrupted export (a duration string logged as an
+// exercise, and cardio rows that belong in Apple Health, not the lifting log).
+const EXCLUDE_EX = new Set(["811h 41m", "pelaton bike", "peloton bike"]);
+
+// A workout's date may be stored as UTC ISO; compare both the ISO day and the
+// local day so a timezone shift can't make a fix miss its row.
+function dayKeys(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return [String(iso).slice(0, 10)];
+  const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return [d.toISOString().slice(0, 10), local];
+}
+
+function sanitizeWorkouts(ws) {
+  let changed = false;
+  const out = [];
+  for (const w of ws) {
+    const days = dayKeys(w.date);
+    const exercises = [];
+    for (const ex of w.exercises) {
+      if (EXCLUDE_EX.has(ex.name.trim().toLowerCase())) { changed = true; continue; }
+      const sets = ex.sets.map((s, i) => {
+        for (const f of CSV_FIXES) {
+          if (days.includes(f.d) && ex.name === f.e && i + 1 === f.s && Math.abs((+s[f.f] || 0) - f.bad) < 0.01) {
+            changed = true;
+            return { ...s, [f.f]: f.good };
+          }
+        }
+        return s;
+      });
+      exercises.push({ ...ex, sets });
+    }
+    if (exercises.length) out.push({ ...w, exercises });
+    else changed = true;
+  }
+  return changed ? out : ws;
 }
 
 /* --------------------------- exercise library ---------------------------- */
@@ -263,6 +315,7 @@ export default function App() {
   const [tab, setTab] = useState("today");
   const [loading, setLoading] = useState(true);
   const [workouts, setWorkouts] = useState([]);
+  const [activity, setActivity] = useState([]); // Apple Health cardio/activity log
   const [meta, setMeta] = useState(DEFAULT_META);
   const loaded = useRef(false);
 
@@ -285,7 +338,9 @@ export default function App() {
     (async () => {
       const w = await loadKey("gym:workouts", []);
       const m = await loadKey("gym:meta", DEFAULT_META);
-      setWorkouts(w);
+      const act = await loadKey("gym:activity", []);
+      setWorkouts(sanitizeWorkouts(w));
+      setActivity(act);
       setMeta({ ...DEFAULT_META, ...m, settings: { ...DEFAULT_META.settings, ...(m.settings || {}) } });
       loaded.current = true;
       setLoading(false);
@@ -293,6 +348,7 @@ export default function App() {
   }, []);
   useEffect(() => { if (loaded.current) saveKey("gym:workouts", workouts); }, [workouts]);
   useEffect(() => { if (loaded.current) saveKey("gym:meta", meta); }, [meta]);
+  useEffect(() => { if (loaded.current) saveKey("gym:activity", activity); }, [activity]);
 
   /* rest timer tick */
   useEffect(() => {
@@ -321,7 +377,7 @@ export default function App() {
         .filter((x) => x.name === e.name)
         .some((x) => x.sets.some((s) => s.weight > 0 || s.reps > 0));
       if (!hasWeighted) return;
-      map.set(e.name, { name: e.name, group: "Other", type: "barbell" });
+      map.set(e.name, { name: e.name, group: muscleOf(e.name), type: "barbell" });
     }));
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [workouts, meta.customExercises]);
@@ -359,7 +415,7 @@ export default function App() {
       // merge: keep existing, drop dup imported by date+name
       setWorkouts((prev) => {
         const keys = new Set(prev.map((w) => `${dayKey(w.date)}|${w.name}`));
-        const fresh = imported.filter((w) => !keys.has(`${dayKey(w.date)}|${w.name}`));
+        const fresh = sanitizeWorkouts(imported).filter((w) => !keys.has(`${dayKey(w.date)}|${w.name}`));
         const all = [...prev, ...fresh].sort((a, b) => new Date(b.date) - new Date(a.date));
         return all;
       });
@@ -370,7 +426,7 @@ export default function App() {
   };
 
   const exportJSON = () => {
-    const blob = new Blob([JSON.stringify({ workouts, meta }, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ workouts, meta, activity }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -383,8 +439,9 @@ export default function App() {
     reader.onload = (e) => {
       try {
         const d = JSON.parse(String(e.target.result));
-        if (d.workouts) setWorkouts(d.workouts);
+        if (d.workouts) setWorkouts(sanitizeWorkouts(d.workouts));
         if (d.meta) setMeta({ ...DEFAULT_META, ...d.meta });
+        if (Array.isArray(d.activity)) setActivity(d.activity);
         flash("Backup restored.");
       } catch { flash("Couldn't read that backup."); }
     };
@@ -422,6 +479,41 @@ export default function App() {
         setTab("routines");
       } catch { flash("Couldn't read that routines file."); }
     };
+    reader.readAsText(file);
+  };
+
+  // Import Apple Health export.xml (Health app → profile → Export All Health Data
+  // → unzip → export.xml). Parsed entirely client-side; only <Workout> records used.
+  const importAppleHealth = (file) => {
+    flash("Reading Apple Health export…");
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      let doc;
+      try { doc = new DOMParser().parseFromString(String(e.target.result), "text/xml"); }
+      catch { flash("Couldn't read that file."); return; }
+      const nodes = doc.getElementsByTagName("Workout");
+      if (!nodes.length) { flash("No <Workout> records found — use export.xml from the Health app export."); return; }
+      setActivity((prev) => {
+        const have = new Set(prev.map((a) => a.id));
+        const fresh = [];
+        for (const w of nodes) {
+          const start = w.getAttribute("startDate");
+          const type = (w.getAttribute("workoutActivityType") || "").replace("HKWorkoutActivityType", "");
+          const id = `ah_${start}_${type}`;
+          if (!start || have.has(id)) continue;
+          have.add(id);
+          fresh.push({
+            id, date: start, type,
+            duration: Math.round(parseFloat(w.getAttribute("duration")) || 0),
+            calories: Math.round(parseFloat(w.getAttribute("totalEnergyBurned")) || 0),
+          });
+        }
+        flash(fresh.length ? `Imported ${fresh.length} Apple Health workouts.` : "No new Apple Health workouts to add.");
+        if (!fresh.length) return prev;
+        return [...prev, ...fresh].sort((a, b) => new Date(b.date) - new Date(a.date));
+      });
+    };
+    reader.onerror = () => flash("Couldn't read that file.");
     reader.readAsText(file);
   };
 
@@ -534,8 +626,14 @@ export default function App() {
     flash("Saved as routine.");
   };
 
-  const deleteWorkout = (id) => setWorkouts((prev) => prev.filter((w) => w.id !== id));
-  const deleteRoutine = (id) => setMeta((m) => ({ ...m, routines: m.routines.filter((r) => r.id !== id) }));
+  const deleteWorkout = (w) => {
+    if (!window.confirm(`Delete "${w.name}" (${fmtDate(w.date)})? This can't be undone.`)) return;
+    setWorkouts((prev) => prev.filter((x) => x.id !== w.id));
+  };
+  const deleteRoutine = (r) => {
+    if (!window.confirm(`Delete routine "${r.name}"?`)) return;
+    setMeta((m) => ({ ...m, routines: m.routines.filter((x) => x.id !== r.id) }));
+  };
   const renameRoutine = (id, name) =>
     setMeta((m) => ({ ...m, routines: m.routines.map((r) => (r.id === id ? { ...r, name } : r)) }));
 
@@ -609,6 +707,7 @@ export default function App() {
           ))}
         {tab === "history" && <HistoryScreen />}
         {tab === "progress" && <ProgressScreen />}
+        {tab === "coach" && <CoachScreen workouts={workouts} activity={activity} onExport={exportJSON} />}
         {tab === "routines" && <RoutinesScreen />}
       </div>
 
@@ -684,11 +783,15 @@ export default function App() {
           ["today", "Today", Dumbbell],
           ["history", "History", HistoryIcon],
           ["progress", "Progress", TrendingUp],
+          ["coach", "Coach", Brain],
           ["routines", "Routines", ListChecks],
         ].map(([id, label, Icon]) => (
-          <button key={id} onClick={() => setTab(id)} style={navBtn(tab === id)}>
+          <button key={id} onClick={() => setTab(id)} style={{ ...navBtn(tab === id), position: "relative" }}>
             <Icon size={20} />
             <span style={{ fontSize: 10, marginTop: 2 }}>{label}</span>
+            {id === "today" && session && tab !== "today" && (
+              <span style={{ position: "absolute", top: 2, left: "50%", marginLeft: 8, width: 7, height: 7, borderRadius: "50%", background: C.pr }} />
+            )}
           </button>
         ))}
       </nav>
@@ -752,21 +855,48 @@ export default function App() {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <FileButton label="Import Strong CSV" accept=".csv,text/csv" onFile={handleCSV} />
           <FileButton label="Add coach routines" accept=".json" onFile={importRoutines} icon={Sparkles} />
+          <FileButton label="Import Apple Health" accept=".xml,text/xml" onFile={importAppleHealth} icon={Heart} />
           <button onClick={exportJSON} style={ghostBtn}><Download size={16} /> Backup / share with coach</button>
           <FileButton label="Restore" accept=".json" onFile={importJSON} icon={Upload} />
         </div>
         <div style={{ color: C.muted, fontSize: 11.5, marginTop: 8, lineHeight: 1.5 }}>
           Tip: tap <b>Backup</b> to hand your history to the Gym Coach in Claude, then drop the routines it sends back in via <b>Add coach routines</b>.
+          For Apple Health: Health app → profile icon → Export All Health Data → unzip → pick <b>export.xml</b> (large files take a few seconds).
         </div>
       </div>
     );
   }
 
   function HistoryScreen() {
+    const [showAllActivity, setShowAllActivity] = useState(false);
+    const prettyType = (t) => t.replace(/([a-z])([A-Z])/g, "$1 $2");
+    const shownActivity = showAllActivity ? activity.slice(0, 50) : activity.slice(0, 5);
     return (
       <div>
-        <Header title="History" sub={`${workouts.length} workouts`} />
+        <Header title="History" sub={`${workouts.length} workouts${activity.length ? ` · ${activity.length} Apple Health sessions` : ""}`} />
         {workouts.length === 0 && <div style={emptyBox}><div style={{ color: C.muted }}>Nothing logged yet. Start a workout or import your Strong history.</div></div>}
+        {activity.length > 0 && (
+          <div style={{ ...cardStatic, marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                <Heart size={11} style={{ verticalAlign: -1, marginRight: 4 }} />Apple Health activity
+              </div>
+              {activity.length > 5 && (
+                <button onClick={() => setShowAllActivity((v) => !v)} style={{ background: "none", border: "none", color: C.amber, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  {showAllActivity ? "Show less" : `Show all (${Math.min(activity.length, 50)})`}
+                </button>
+              )}
+            </div>
+            {shownActivity.map((a) => (
+              <div key={a.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 0", borderBottom: `1px solid ${C.line}`, fontSize: 13 }}>
+                <span style={{ color: C.ink }}>{prettyType(a.type)}</span>
+                <span style={{ color: C.muted, fontFamily: MONO, whiteSpace: "nowrap" }}>
+                  {fmtShort(a.date)} · {a.duration}m{a.calories ? ` · ${a.calories} cal` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         {workouts.map((w) => {
           const totalSets = w.exercises.reduce((a, e) => a + e.sets.length, 0);
           const vol = w.exercises.reduce((a, e) => a + e.sets.reduce((x, s) => x + s.weight * s.reps, 0), 0);
@@ -779,7 +909,7 @@ export default function App() {
                   </div>
                   <div style={{ color: C.muted, fontSize: 12 }}>{fmtDate(w.date)}{w.gym ? ` · ${gymName(w.gym)}` : ""}</div>
                 </div>
-                <button onClick={() => deleteWorkout(w.id)} style={miniBtn}><Trash2 size={14} /></button>
+                <button onClick={() => deleteWorkout(w)} style={miniBtn}><Trash2 size={14} /></button>
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
                 <Stat label="Exercises" value={w.exercises.length} />
@@ -900,7 +1030,7 @@ export default function App() {
             )}
             <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
               <button onClick={() => startSession(r)} style={{ ...miniBtn, color: C.amber, borderColor: C.amber }}><Play size={14} /></button>
-              <button onClick={() => deleteRoutine(r.id)} style={miniBtn}><Trash2 size={14} /></button>
+              <button onClick={() => deleteRoutine(r)} style={miniBtn}><Trash2 size={14} /></button>
             </div>
           </div>
           <div style={{ marginTop: 8 }}>

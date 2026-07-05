@@ -16,6 +16,13 @@ Built with React + Vite. No backend, no accounts, free to host.
 - **Confirm-all** — finish a whole exercise (or the whole session) in one tap
 - **Progress charts** — estimated 1RM over time, PRs, suggested next targets
 - **Settings** — weight increment, rest timer, rep range, units
+- **Coach tab** — automatic evidence-based checkup: plateau detection on the big
+  lifts (e1RM trend), push/pull volume balance, weekly volume landmarks (MEV),
+  grip-work reminder, and training frequency
+- **Apple Health import** — pull cardio/activity sessions from `export.xml`
+  (Health app → Export All Health Data); shown in History and counted by the Coach
+- **Data repairs** — known-bad rows from the original Strong export (e.g. the
+  2,300 lb High Row typo) are auto-corrected on load and on every import
 - **Gym Coach handoff** — import routines built by the Gym Coach skill in Claude
 
 ---
