@@ -6,7 +6,7 @@ import {
 import {
   Dumbbell, Plus, Minus, Check, Clock, TrendingUp, History as HistoryIcon,
   ListChecks, Upload, Download, X, Search, Flame, Trash2,
-  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil, Brain, Heart,
+  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil, Brain, Heart, MoreHorizontal,
 } from "lucide-react";
 import { C, MONO, SANS } from "./lib/theme";
 import { uid, num, epley, fmtDate, fmtShort, dayKey, setsForExercise } from "./lib/helpers";
@@ -320,7 +320,7 @@ export default function App() {
   const loaded = useRef(false);
 
   // active session
-  const [session, setSession] = useState(null); // {name, startedAt, exercises:[{id,name,sets:[{weight,reps,done}]}]}
+  const [session, setSession] = useState(null); // {name, type, startedAt, exercises:[{id,name,sets:[{weight,reps,done}]}]}
   const [workoutScreen, setWorkoutScreen] = useState("list"); // "list" | "detail"
   const [exIdx, setExIdx] = useState(0);
   const [picker, setPicker] = useState(false);
@@ -329,6 +329,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [editingRoutineId, setEditingRoutineId] = useState(null);
   const [editingName, setEditingName] = useState("");
+  const [pendingRoutine, setPendingRoutine] = useState(null);
+  const [pendingFinish, setPendingFinish] = useState(null);
 
   // rest timer
   const [rest, setRest] = useState({ left: 0, total: 0, running: false });
@@ -517,19 +519,45 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  const startSession = (routine) => {
+  const buildSession = (routine, mode = "normal") => {
     const exercises = (routine?.exercises || []).map((re) => {
       const target = suggestTarget(workouts, re.name, settings);
       const n = re.sets || target?.sets || 3;
-      const weight = re.weight || target?.weight || 0;
-      const reps = re.reps || target?.reps || settings.repLow;
+      // "seed" is what a normal session would start at (progression already applied)
+      const seed = re.weight || target?.weight || 0;
+      let weight = seed;
+      let reps = re.reps || target?.reps || settings.repLow;
+      if (mode === "push") {
+        // heavy day: one increment above the normal seed, bottom of the rep range
+        weight = seed + settings.increment;
+        reps = settings.repLow;
+      } else if (mode === "reset") {
+        // deload: back off two increments, top of the rep range
+        weight = Math.max(seed - settings.increment * 2, 0);
+        reps = settings.repHigh;
+      }
       return { id: uid(), name: re.name, sets: Array.from({ length: n }, () => ({ weight, reps, done: false })) };
     });
-    setSession({ name: routine?.name || "Quick Session", startedAt: Date.now(), routine: !!routine, gym: routine?.gym || meta.activeGym, exercises });
+    return {
+      name: routine?.name || "Quick Session",
+      type: mode,
+      startedAt: Date.now(),
+      routine: !!routine,
+      gym: routine?.gym || meta.activeGym,
+      exercises,
+    };
+  };
+
+  const startSession = (routine, mode = "normal") => {
+    setPendingRoutine(null);
+    const sessionData = buildSession(routine, mode);
+    setSession(sessionData);
     setWorkoutScreen("list");
     setExIdx(0);
     setTab("today");
   };
+
+  const openRoutinePicker = (routine) => setPendingRoutine(routine);
 
   // Auto-load last workout: clone the most recent session (preferring this gym),
   // with weights/reps advanced by the progression engine.
@@ -540,7 +568,7 @@ export default function App() {
       name: last.name,
       gym: last.gym || meta.activeGym,
       exercises: last.exercises.map((e) => ({ name: e.name, sets: e.sets.length })),
-    });
+    }, "normal");
   };
 
   const lastWorkout = useMemo(
@@ -592,17 +620,47 @@ export default function App() {
   const removeExercise = (ei) =>
     setSession((s) => ({ ...s, exercises: s.exercises.filter((_, i) => i !== ei) }));
 
+  const makeSummary = (sessionData) => {
+    const completed = sessionData.exercises
+      .map((e) => ({ name: e.name, sets: e.sets.filter((s) => s.done && s.reps > 0) }))
+      .filter((e) => e.sets.length);
+    const totalSets = completed.reduce((sum, e) => sum + e.sets.length, 0);
+    const totalVolume = completed.reduce((sum, e) => sum + e.sets.reduce((ss, s) => ss + s.weight * s.reps, 0), 0);
+    const totalReps = completed.reduce((sum, e) => sum + e.sets.reduce((ss, s) => ss + s.reps, 0), 0);
+
+    const prs = completed
+      .map((e) => {
+        const history = setsForExercise(workouts, e.name);
+        const priorBest = history.length ? Math.max(...history.map((s) => s.e1rm)) : 0;
+        const currentBest = Math.max(...e.sets.map((s) => epley(s.weight, s.reps)));
+        if (currentBest > priorBest) {
+          return { name: e.name, priorBest: Math.round(priorBest), currentBest: Math.round(currentBest) };
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    return { completed, totalSets, totalVolume, totalReps, prs };
+  };
+
   const finishSession = () => {
     const exercises = session.exercises
       .map((e) => ({ name: e.name, sets: e.sets.filter((s) => s.done && s.reps > 0) }))
       .filter((e) => e.sets.length);
     if (!exercises.length) { setSession(null); flash("Session discarded — no completed sets."); return; }
-    const w = { id: uid(), name: session.name, date: new Date().toISOString(), gym: session.gym || meta.activeGym, exercises };
+    setPendingFinish({ summary: makeSummary(session), session });
+  };
+
+  const confirmFinishSession = () => {
+    if (!pendingFinish) return;
+    const exercises = pendingFinish.summary.completed.map((e) => ({ name: e.name, sets: e.sets }));
+    const w = { id: uid(), name: pendingFinish.session.name, date: new Date().toISOString(), gym: pendingFinish.session.gym || meta.activeGym, exercises };
     setWorkouts((prev) => [w, ...prev]);
     setSession(null);
     setWorkoutScreen("list");
     setExIdx(0);
     setRest({ left: 0, total: 0, running: false });
+    setPendingFinish(null);
     flash("Workout saved.");
     setTab("history");
   };
@@ -705,6 +763,62 @@ export default function App() {
           ) : (
             <TodayHome />
           ))}
+        {pendingRoutine && (
+          <Sheet onClose={() => setPendingRoutine(null)} title="Routine mode">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ color: C.muted, fontSize: 13 }}>Pick how you'd like this routine to start.</div>
+              {[
+                ["normal", "Normal", "Standard progression"],
+                ["push", "Push", "Heavy day — add weight, lower reps"],
+                ["reset", "Reset", "Deload — back off weight, higher reps"],
+              ].map(([id, label, desc]) => (
+                <button key={id} onClick={() => startSession(pendingRoutine, id)} style={{ ...ghostBtn, justifyContent: "space-between", padding: "14px 16px", borderRadius: 14, textAlign: "left" }}>
+                  <div>
+                    <div style={{ color: C.ink, fontSize: 15, fontWeight: 700 }}>{label}</div>
+                    <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>{desc}</div>
+                  </div>
+                  <span style={{ color: C.amber, fontWeight: 700, fontSize: 13 }}>Select</span>
+                </button>
+              ))}
+            </div>
+          </Sheet>
+        )}
+        {pendingFinish && (
+          <Sheet onClose={() => setPendingFinish(null)} title="Finish workout">
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ color: C.muted, fontSize: 13 }}>Review your session summary before saving.</div>
+              <div style={{ background: C.surface2, borderRadius: 16, padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{pendingFinish.session.name}</div>
+                  <div style={{ color: C.muted, fontSize: 12 }}>{pendingFinish.session.type?.toUpperCase()}</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <Stat label="Sets" value={pendingFinish.summary.totalSets} />
+                  <Stat label="Reps" value={pendingFinish.summary.totalReps} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <Stat label="Volume" value={Math.round(pendingFinish.summary.totalVolume)} unit={settings.unit} />
+                  <Stat label="Exercises" value={pendingFinish.summary.completed.length} />
+                </div>
+                {pendingFinish.summary.prs.length > 0 ? (
+                  <div>
+                    <div style={{ color: C.ink, fontWeight: 700, marginBottom: 8 }}>New PRs</div>
+                    {pendingFinish.summary.prs.map((pr) => (
+                      <div key={pr.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, marginBottom: 4 }}>
+                        <span>{pr.name}</span>
+                        <span>{pr.priorBest} → {pr.currentBest}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: C.muted, fontSize: 13 }}>No PRs this session — keep pushing.</div>
+                )}
+              </div>
+              <button onClick={confirmFinishSession} style={primaryBtn}>Save workout</button>
+              <button onClick={() => setPendingFinish(null)} style={ghostBtn}>Back to session</button>
+            </div>
+          </Sheet>
+        )}
         {tab === "history" && <HistoryScreen />}
         {tab === "progress" && <ProgressScreen />}
         {tab === "coach" && <CoachScreen workouts={workouts} activity={activity} onExport={exportJSON} />}
@@ -830,7 +944,18 @@ export default function App() {
                   </div>
                   <div style={{ color: C.muted, fontSize: 12 }}>{r.exercises.map((e) => e.name).join(" · ")}</div>
                 </div>
-                <Play size={18} color={C.amber} />
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {/* span, not button — the card itself is already a button */}
+                  <span
+                    role="button"
+                    aria-label={`Start ${r.name} in push or reset mode`}
+                    onClick={(e) => { e.stopPropagation(); openRoutinePicker(r); }}
+                    style={{ padding: 10, display: "inline-flex", borderRadius: 10, color: C.muted }}
+                  >
+                    <MoreHorizontal size={18} />
+                  </span>
+                  <Play size={18} color={C.amber} />
+                </div>
               </button>
             ))}
           </>
@@ -932,8 +1057,13 @@ export default function App() {
       workouts.forEach((w) => w.exercises.forEach((e) => (counts[e.name] = (counts[e.name] || 0) + 1)));
       return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([n]) => n);
     }, [workouts]);
-    const [sel, setSel] = useState(names[0] || "");
+    const [sel, setSel] = useState("");
+    const [query, setQuery] = useState("");
+    useEffect(() => {
+      if (!sel && names.length) setSel(names[0]);
+    }, [names, sel]);
     const current = sel || names[0] || "";
+    const filtered = query ? names.filter((n) => n.toLowerCase().includes(query.toLowerCase())) : names;
     const sessions = current ? setsForExercise(workouts, current) : [];
     const data = sessions.map((s) => ({ d: fmtShort(s.date), e1rm: Math.round(s.e1rm), top: Math.max(...s.sets.map((x) => x.weight)) }));
     const bestE = sessions.length ? Math.max(...sessions.map((s) => s.e1rm)) : 0;
@@ -952,12 +1082,30 @@ export default function App() {
     return (
       <div>
         <Header title="Progress" />
-        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6, marginBottom: 12 }}>
-          {names.map((n) => (
-            <button key={n} onClick={() => setSel(n)} style={{ whiteSpace: "nowrap", padding: "8px 12px", borderRadius: 999, border: `1px solid ${current === n ? C.amber : C.line}`, background: current === n ? C.amberDim : C.surface, color: current === n ? C.amber : C.muted, fontSize: 13, cursor: "pointer" }}>
-              {n}
-            </button>
-          ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <Search size={16} color={C.muted} />
+            <input
+              type="text"
+              placeholder="Filter exercises…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ flex: 1, border: `1px solid ${C.line}`, borderRadius: 14, padding: "10px 12px", fontSize: 14, color: C.ink, background: C.surface }}
+            />
+            {query && (
+              <button onClick={() => setQuery("")} style={{ background: "none", border: "none", padding: 4, cursor: "pointer" }} aria-label="Clear filter">
+                <X size={16} color={C.muted} />
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6 }}>
+            {filtered.map((n) => (
+              <button key={n} onClick={() => setSel(n)} style={{ whiteSpace: "nowrap", padding: "8px 12px", borderRadius: 999, border: `1px solid ${current === n ? C.amber : C.line}`, background: current === n ? C.amberDim : C.surface, color: current === n ? C.amber : C.muted, fontSize: 13, cursor: "pointer" }}>
+                {n}
+              </button>
+            ))}
+            {!filtered.length && <div style={{ color: C.muted, fontSize: 13, padding: "8px 4px" }}>No exercises match.</div>}
+          </div>
         </div>
 
         <div style={{ ...cardStatic, marginBottom: 12 }}>
