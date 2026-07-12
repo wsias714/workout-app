@@ -543,6 +543,7 @@ export default function App() {
       type: mode,
       startedAt: Date.now(),
       routine: !!routine,
+      routineId: routine?.id || null,
       gym: routine?.gym || meta.activeGym,
       exercises,
     };
@@ -597,6 +598,17 @@ export default function App() {
       const ex = s.exercises.map((e, i) => {
         if (i !== ei || e.sets.length <= 1) return e;
         return { ...e, sets: e.sets.filter((_, j) => j !== si) };
+      });
+      return { ...s, exercises: ex };
+    });
+
+  const addSetRow = (ei) =>
+    setSession((s) => {
+      const ex = s.exercises.map((e, i) => {
+        if (i !== ei) return e;
+        const last = e.sets[e.sets.length - 1];
+        const clone = last ? { weight: last.weight, reps: last.reps, done: false } : { weight: 0, reps: 0, done: false };
+        return { ...e, sets: [...e.sets, clone] };
       });
       return { ...s, exercises: ex };
     });
@@ -679,9 +691,20 @@ export default function App() {
       reps: e.sets[0]?.reps || settings.repLow,
       weight: e.sets[0]?.weight || 0,
     }));
+    const source = session.routineId && meta.routines.find((r) => r.id === session.routineId);
+
+    if (source) {
+      const updateInPlace = window.confirm(`Update "${source.name}" with these changes?\n\nOK = update existing routine\nCancel = save as a new routine instead`);
+      if (updateInPlace) {
+        setMeta((m) => ({ ...m, routines: m.routines.map((r) => (r.id === source.id ? { ...r, exercises } : r)) }));
+        flash(`Updated "${source.name}".`);
+        return;
+      }
+    }
+
     const name = session.name === "Quick Session" ? `Routine ${meta.routines.length + 1}` : session.name;
     setMeta((m) => ({ ...m, routines: [...m.routines, { id: uid(), gym: session.gym || m.activeGym, name, exercises }] }));
-    flash("Saved as routine.");
+    flash("Saved as new routine.");
   };
 
   const deleteWorkout = (w) => {
@@ -755,6 +778,7 @@ export default function App() {
                 onUpdateSet={updateSet}
                 onToggleSet={completeSet}
                 onRemoveSet={removeSetRow}
+                onAddSet={addSetRow}
                 onBack={() => setWorkoutScreen("list")}
                 onJump={setExIdx}
                 onFinish={finishSession}

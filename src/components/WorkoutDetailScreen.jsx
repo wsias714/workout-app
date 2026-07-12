@@ -60,7 +60,7 @@ function SetRow({ ex, ei, si, isLast, canDelete, maxHistE1rm, onUpdate, onToggle
 }
 
 export default function WorkoutDetailScreen({
-  session, workouts, exIdx, catalog, onUpdateSet, onToggleSet, onRemoveSet, onBack, onJump, onFinish,
+  session, workouts, exIdx, catalog, onUpdateSet, onToggleSet, onRemoveSet, onAddSet, onBack, onJump, onFinish,
 }) {
   const ex = session.exercises[exIdx];
   const ei = exIdx;
@@ -145,6 +145,16 @@ export default function WorkoutDetailScreen({
             />
           ))}
         </div>
+
+        <button
+          onClick={() => onAddSet(ei)}
+          style={{
+            marginTop: 10, width: "100%", padding: "9px", color: C.amber, border: `1.5px dashed ${C.amberDim}`,
+            borderRadius: 11, fontSize: 13, fontWeight: 700, cursor: "pointer", background: "transparent",
+          }}
+        >
+          + Add Set
+        </button>
 
         <button
           onClick={handleCta}

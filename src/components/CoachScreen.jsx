@@ -1,7 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Download, Upload } from "lucide-react";
 import { C } from "../lib/theme";
-import { analyzeCoach } from "../lib/coach";
+import { analyzeCoach, muscleBenchmarks } from "../lib/coach";
+import BodyMap from "./BodyMap";
 
 const LEVELS = {
   warn: { border: C.pr, bg: "#FEF6E7", label: "Fix", labelColor: C.pr },
@@ -11,6 +12,13 @@ const LEVELS = {
 
 export default function CoachScreen({ workouts, activity, onExport }) {
   const insights = useMemo(() => analyzeCoach(workouts, activity), [workouts, activity]);
+  const benchmarks = useMemo(() => muscleBenchmarks(workouts), [workouts]);
+  const [selected, setSelected] = useState(null);
+
+  const selectMuscle = (group) => {
+    setSelected(group);
+    document.getElementById(`muscle-${group}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   if (workouts.length < 4) {
     return (
@@ -30,6 +38,22 @@ export default function CoachScreen({ workouts, activity, onExport }) {
   return (
     <div>
       <Header />
+
+      <div style={{ ...card, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>
+          Progress toward benchmark lifts
+        </div>
+        <BodyMap benchmarks={benchmarks} selected={selected} onSelect={selectMuscle} />
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginTop: 6, fontSize: 10, color: C.muted }}>
+          <span><span style={{ color: C.bad }}>●</span> Low in personal range</span>
+          <span><span style={{ color: C.pr }}>●</span> Mid</span>
+          <span><span style={{ color: C.good }}>●</span> Near a PR</span>
+        </div>
+        <div style={{ color: C.muted, fontSize: 11.5, textAlign: "center", marginTop: 6 }}>
+          Tap a muscle to jump to its note below. Color = where your latest e1RM sits vs. your own history — not a population comparison.
+        </div>
+      </div>
+
       <div style={{ ...card, marginBottom: 12 }}>
         <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
           Evidence-based analysis
@@ -42,8 +66,16 @@ export default function CoachScreen({ workouts, activity, onExport }) {
 
       {insights.map((ins, i) => {
         const lv = LEVELS[ins.lvl] || LEVELS.info;
+        const isSelected = ins.key === `muscle-${selected}`;
         return (
-          <div key={i} style={{ ...card, background: lv.bg, borderLeft: `3px solid ${lv.border}`, marginBottom: 10 }}>
+          <div
+            key={i}
+            id={ins.key}
+            style={{
+              ...card, background: lv.bg, borderLeft: `3px solid ${lv.border}`, marginBottom: 10,
+              boxShadow: isSelected ? `0 0 0 2px ${C.ink}` : C.shadow, transition: "box-shadow 0.3s",
+            }}
+          >
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: ins.name ? 4 : 0 }}>
               {ins.name && <span style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{ins.name}</span>}
               <span style={{ fontSize: 9.5, fontWeight: 800, color: lv.labelColor, textTransform: "uppercase", letterSpacing: "0.07em" }}>

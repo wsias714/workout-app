@@ -3,7 +3,7 @@
 // detection on the big lifts, push/pull balance, weekly volume landmarks
 // (Renaissance Periodization MEV heuristic), and a grip-work check (a known
 // limiter on bench and deadlift for this lifter).
-import { setsForExercise } from "./helpers";
+import { setsForExercise, personalPercentile } from "./helpers";
 
 // Rough muscle-group classifier for exercise names as they appear in Strong
 // exports. Only needs to be good enough for push/pull and volume grouping.
@@ -23,6 +23,44 @@ export function muscleOf(name) {
 const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 
 const BIG_LIFTS = ["Squat (Barbell)", "Bench Press (Barbell)", "Deadlift (Barbell)"];
+
+// Groups shown on the Coach body map. "Back" and "Triceps" render on the
+// back-view silhouette; everything else on the front view.
+export const MUSCLE_GROUPS = ["Chest", "Back", "Shoulders", "Legs", "Biceps", "Triceps", "Forearms", "Core"];
+
+// For each muscle group, picks the most-frequently-logged exercise as its
+// benchmark lift ("most common workouts" per group), then reports how the
+// most recent e1RM sits within that lift's own personal historical range.
+export function muscleBenchmarks(workouts) {
+  const counts = {};
+  const groupOf = {};
+  workouts.forEach((w) =>
+    w.exercises.forEach((e) => {
+      counts[e.name] = (counts[e.name] || 0) + 1;
+      groupOf[e.name] = muscleOf(e.name);
+    })
+  );
+
+  const result = {};
+  MUSCLE_GROUPS.forEach((group) => {
+    const candidates = Object.keys(counts).filter((n) => groupOf[n] === group);
+    if (!candidates.length) { result[group] = null; return; }
+    const benchName = candidates.sort((a, b) => counts[b] - counts[a])[0];
+    const sessions = setsForExercise(workouts, benchName);
+    if (sessions.length < 2) { result[group] = { exercise: benchName, percentile: null, sessionCount: sessions.length }; return; }
+    const recent = sessions.slice(-4).map((s) => s.e1rm);
+    const prior = sessions.slice(-8, -4).map((s) => s.e1rm);
+    const trendPct = prior.length ? ((avg(recent) - avg(prior)) / avg(prior)) * 100 : null;
+    result[group] = {
+      exercise: benchName,
+      percentile: personalPercentile(sessions),
+      current: sessions[sessions.length - 1].e1rm,
+      sessionCount: sessions.length,
+      trendPct,
+    };
+  });
+  return result;
+}
 
 // Returns [{ lvl: "warn"|"good"|"info", name?, text }]
 export function analyzeCoach(workouts, activity = []) {
@@ -105,6 +143,22 @@ export function analyzeCoach(workouts, activity = []) {
   let freq = `${recentWorkouts.length} lifting sessions in the last 30 days (~${(recentWorkouts.length / 4.3).toFixed(1)}/week).`;
   if (recentActivity.length) freq += ` Apple Health adds ${recentActivity.length} cardio/activity sessions in the same window.`;
   insights.push({ lvl: "info", name: "Frequency", text: freq });
+
+  // 6) Muscle-group benchmark check — feeds the body map on this tab.
+  // Uses the most-logged exercise per muscle group and reports where the
+  // latest e1RM sits in that lift's own personal history (not population data).
+  const benchmarks = muscleBenchmarks(workouts);
+  Object.entries(benchmarks).forEach(([group, b]) => {
+    if (!b || b.percentile === null) return;
+    const lvl = b.percentile >= 70 ? "good" : b.percentile <= 35 ? "warn" : "info";
+    const trendTxt = b.trendPct !== null && !isNaN(b.trendPct)
+      ? ` Trending ${b.trendPct >= 0 ? "up" : "down"} ${Math.abs(b.trendPct).toFixed(1)}% over the last 4 sessions.`
+      : "";
+    insights.push({
+      lvl, name: group, key: `muscle-${group}`,
+      text: `Benchmark lift: ${b.exercise}. Currently at ${b.percentile}% of your personal all-time range (e1RM ≈ ${Math.round(b.current)}).${trendTxt}`,
+    });
+  });
 
   return insights;
 }

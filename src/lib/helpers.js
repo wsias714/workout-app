@@ -43,3 +43,17 @@ export function setsForExercise(workouts, name) {
   sessions.sort((a, b) => new Date(a.date) - new Date(b.date));
   return sessions;
 }
+
+// Percentile of the most recent e1RM within the exercise's own historical
+// range (personal, not population-based). 100 = current session is an
+// all-time PR for this lift; 0 = at the historical low.
+export function personalPercentile(sessions) {
+  if (!sessions.length) return null;
+  const vals = sessions.map((s) => s.e1rm).filter((v) => v > 0);
+  if (!vals.length) return null;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const current = sessions[sessions.length - 1].e1rm;
+  if (max === min) return 100;
+  return Math.round(((current - min) / (max - min)) * 100);
+}

@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { LineChart, Line, ResponsiveContainer, Tooltip, YAxis } from "recharts";
+import { LineChart, Line, ResponsiveContainer, Tooltip, YAxis, ReferenceLine, ReferenceArea } from "recharts";
 import { C, MONO } from "../lib/theme";
-import { epley, fmtShort } from "../lib/helpers";
+import { epley, fmtShort, personalPercentile } from "../lib/helpers";
 
 function HistoryRow({ session, isFirst, isLast }) {
   const [expanded, setExpanded] = useState(false);
@@ -45,15 +45,28 @@ export default function HistoryPanel({ sessions }) {
   const last5 = sessions.slice(-5);
   const newestFirst = [...last5].reverse();
   const chartData = last5.map((s) => ({ date: fmtShort(s.date), e1rm: Math.round(s.e1rm) }));
+
+  // Personal (not population) reference points, computed from ALL history —
+  // not just the last 5 points charted — so the PR line and bands don't
+  // shift as older sessions roll off the visible window.
+  const allE1rms = sessions.map((s) => s.e1rm).filter((v) => v > 0);
+  const allTimeMax = allE1rms.length ? Math.max(...allE1rms) : 0;
+  const allTimeMin = allE1rms.length ? Math.min(...allE1rms) : 0;
+  const band1 = allTimeMin + (allTimeMax - allTimeMin) * 0.35; // low/mid boundary
+  const band2 = allTimeMin + (allTimeMax - allTimeMin) * 0.7;  // mid/high boundary
+  const currentPct = personalPercentile(sessions);
+
   const e1rms = chartData.map((d) => d.e1rm);
-  const yMin = e1rms.length ? Math.floor(Math.min(...e1rms) / 10) * 10 - 5 : 0;
-  const yMax = e1rms.length ? Math.ceil(Math.max(...e1rms) / 10) * 10 + 5 : 10;
+  const yMin = e1rms.length ? Math.floor(Math.min(...e1rms, allTimeMin) / 10) * 10 - 5 : 0;
+  const yMax = e1rms.length ? Math.ceil(Math.max(...e1rms, allTimeMax) / 10) * 10 + 5 : 10;
 
   return (
     <div style={{ flex: 1, background: C.bg, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ padding: "10px 20px 6px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: C.muted }}>Your History</span>
-        <span style={{ fontSize: 10, color: C.amber, fontWeight: 700, fontFamily: MONO }}>est. 1RM →</span>
+        <span style={{ fontSize: 10, color: C.amber, fontWeight: 700, fontFamily: MONO }}>
+          est. 1RM → {currentPct !== null && `· ${currentPct}th pctl (you)`}
+        </span>
       </div>
 
       {!newestFirst.length && (
@@ -71,6 +84,22 @@ export default function HistoryPanel({ sessions }) {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 4 }}>
               <YAxis domain={[yMin, yMax]} hide />
+              {allTimeMax > allTimeMin && (
+                <>
+                  <ReferenceArea y1={yMin} y2={band1} fill={C.bad} fillOpacity={0.07} strokeWidth={0} />
+                  <ReferenceArea y1={band1} y2={band2} fill={C.pr} fillOpacity={0.07} strokeWidth={0} />
+                  <ReferenceArea y1={band2} y2={yMax} fill={C.good} fillOpacity={0.07} strokeWidth={0} />
+                </>
+              )}
+              {allTimeMax > 0 && (
+                <ReferenceLine
+                  y={allTimeMax}
+                  stroke={C.pr}
+                  strokeDasharray="4 3"
+                  strokeWidth={1.5}
+                  label={{ value: `PR ${Math.round(allTimeMax)}`, position: "insideTopRight", fontSize: 9, fill: C.pr, fontWeight: 700 }}
+                />
+              )}
               <Line type="monotone" dataKey="e1rm" stroke={C.amber} strokeWidth={2.5} dot={{ r: 3.5, fill: C.amber, strokeWidth: 0 }} isAnimationActive={false} />
               <Tooltip
                 contentStyle={{ fontSize: 11, fontFamily: MONO, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, padding: "4px 8px" }}
