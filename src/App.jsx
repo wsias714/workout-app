@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Papa from "papaparse";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -14,6 +14,9 @@ import WorkoutListScreen from "./components/WorkoutListScreen";
 import WorkoutDetailScreen from "./components/WorkoutDetailScreen";
 import CoachScreen from "./components/CoachScreen";
 import { muscleOf } from "./lib/coach";
+import { useSync } from "./sync/useSync.ts";
+import { mergeData, withTomb } from "./sync/merge.ts";
+import SyncSettings, { ago } from "./components/SyncSettings";
 
 /* ------------------------------ storage ---------------------------------- */
 // Persists to localStorage when running as a real PWA, and to window.storage
@@ -114,7 +117,8 @@ function parseStrong(csvText) {
   }
 
   const workouts = Object.values(groups).map((g) => ({
-    id: uid(),
+    // deterministic, so importing the same CSV on two devices can't duplicate a workout
+    id: "strong_" + new Date(g.date).toISOString().slice(0, 16) + "_" + g.name.replace(/\W+/g, "").slice(0, 24),
     name: g.name,
     date: new Date(g.date).toISOString(),
     imported: true,
@@ -318,6 +322,7 @@ export default function App() {
   const [activity, setActivity] = useState([]); // Apple Health cardio/activity log
   const [meta, setMeta] = useState(DEFAULT_META);
   const loaded = useRef(false);
+  const [ready, setReady] = useState(false);
 
   // active session
   const [session, setSession] = useState(null); // {name, type, startedAt, exercises:[{id,name,sets:[{weight,reps,done}]}]}
@@ -344,13 +349,22 @@ export default function App() {
       setWorkouts(sanitizeWorkouts(w));
       setActivity(act);
       setMeta({ ...DEFAULT_META, ...m, settings: { ...DEFAULT_META.settings, ...(m.settings || {}) } });
+      // an in-progress workout survives a reload / iOS evicting the app (device-local, never synced)
+      const sess = await loadKey("gym:session", null);
+      if (sess && sess.session && Date.now() - new Date(sess.session.startedAt || 0).getTime() < 12 * 3600 * 1000) {
+        setSession(sess.session);
+        setExIdx(sess.exIdx || 0);
+        setTimeout(() => flash("Resumed your workout."), 300);
+      }
       loaded.current = true;
+      setReady(true);
       setLoading(false);
     })();
   }, []);
   useEffect(() => { if (loaded.current) saveKey("gym:workouts", workouts); }, [workouts]);
   useEffect(() => { if (loaded.current) saveKey("gym:meta", meta); }, [meta]);
   useEffect(() => { if (loaded.current) saveKey("gym:activity", activity); }, [activity]);
+  useEffect(() => { if (loaded.current) saveKey("gym:session", session ? { session, exIdx } : null); }, [session, exIdx]);
 
   /* rest timer tick */
   useEffect(() => {
@@ -364,7 +378,21 @@ export default function App() {
     return () => clearInterval(t);
   }, [rest.running]);
 
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 1600); };
+  const flash = useCallback((msg) => { setToast(msg); setTimeout(() => setToast(null), 1600); }, []);
+
+  /* Dropbox sync: the three pieces of state are presented to it as one value */
+  const lib = useMemo(() => ({ workouts, meta, activity }), [workouts, meta, activity]);
+  const libRef = useRef(lib);
+  libRef.current = lib;
+  const applyLib = useCallback((fn) => {
+    const cur = libRef.current;
+    const next = fn(cur);
+    if (next === cur) return;
+    if (next.workouts !== cur.workouts) setWorkouts(next.workouts);
+    if (next.meta !== cur.meta) setMeta(next.meta);
+    if (next.activity !== cur.activity) setActivity(next.activity);
+  }, []);
+  const sync = useSync(lib, applyLib, flash, ready);
 
   /* derived: full exercise catalog */
   const catalog = useMemo(() => {
@@ -386,7 +414,7 @@ export default function App() {
 
   const settings = meta.settings;
   const U = settings.unit;
-  const setSetting = (k, v) => setMeta((m) => ({ ...m, settings: { ...m.settings, [k]: v } }));
+  const setSetting = (k, v) => setMeta((m) => ({ ...m, settings: { ...m.settings, [k]: v }, settingsAt: Date.now() }));
   const gymName = (id) => meta.gyms.find((g) => g.id === id)?.name || "Gym";
   const GymSwitch = () => (
     <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
@@ -401,7 +429,7 @@ export default function App() {
   const loadStarters = () => {
     const mk = (gymId) =>
       STARTERS[gymId].map((r) => ({
-        id: uid(), gym: gymId, name: r.name,
+        id: uid(), gym: gymId, name: r.name, updated: Date.now(),
         exercises: r.ex.map((n) => ({ name: n, sets: 3, reps: settings.repHigh, weight: 0 })),
       }));
     setMeta((m) => ({ ...m, routines: [...m.routines, ...mk("main"), ...mk("hoa")] }));
@@ -421,7 +449,7 @@ export default function App() {
         const all = [...prev, ...fresh].sort((a, b) => new Date(b.date) - new Date(a.date));
         return all;
       });
-      setMeta((m) => ({ ...m, settings: { ...m.settings, unit } }));
+      setMeta((m) => ({ ...m, settings: { ...m.settings, unit }, settingsAt: Date.now() }));
       flash(repaired ? `Imported ${count} workouts · auto-fixed ${repaired} rows` : `Imported ${count} workouts (${unit}).`);
     };
     reader.readAsText(file);
@@ -436,15 +464,32 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
   };
+  const exportAll = async () => {
+    try {
+      const arch = await sync.fetchArchive();
+      const full = new Map(arch.map((w) => [w.id, w]));
+      const workoutsFull = workouts.map((w) => (w.compact && full.has(w.id) ? full.get(w.id) : w));
+      const blob = new Blob([JSON.stringify({ workouts: workoutsFull, meta, activity }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gym-backup-full-${dayKey(new Date().toISOString())}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { flash("Couldn't read the Dropbox archive."); }
+  };
   const importJSON = (file) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const d = JSON.parse(String(e.target.result));
-        if (d.workouts) setWorkouts(sanitizeWorkouts(d.workouts));
-        if (d.meta) setMeta({ ...DEFAULT_META, ...d.meta });
-        if (Array.isArray(d.activity)) setActivity(d.activity);
-        flash("Backup restored.");
+        // merge, never replace: restoring can't delete what you've logged since the backup
+        applyLib((cur) => mergeData(cur, {
+          workouts: sanitizeWorkouts(d.workouts || []),
+          meta: { ...DEFAULT_META, ...(d.meta || {}), activeGym: cur.meta.activeGym },
+          activity: Array.isArray(d.activity) ? d.activity : [],
+        }));
+        flash("Backup merged in.");
       } catch { flash("Couldn't read that backup."); }
     };
     reader.readAsText(file);
@@ -462,6 +507,7 @@ export default function App() {
         const gymIds = new Set(meta.gyms.map((g) => g.id));
         const clean = incoming.map((r) => ({
           id: uid(),
+          updated: Date.now(),
           name: String(r.name || "Coach Routine"),
           gym: gymIds.has(r.gym) ? r.gym : "main",
           coach: true,
@@ -696,27 +742,28 @@ export default function App() {
     if (source) {
       const updateInPlace = window.confirm(`Update "${source.name}" with these changes?\n\nOK = update existing routine\nCancel = save as a new routine instead`);
       if (updateInPlace) {
-        setMeta((m) => ({ ...m, routines: m.routines.map((r) => (r.id === source.id ? { ...r, exercises } : r)) }));
+        setMeta((m) => ({ ...m, routines: m.routines.map((r) => (r.id === source.id ? { ...r, exercises, updated: Date.now() } : r)) }));
         flash(`Updated "${source.name}".`);
         return;
       }
     }
 
     const name = session.name === "Quick Session" ? `Routine ${meta.routines.length + 1}` : session.name;
-    setMeta((m) => ({ ...m, routines: [...m.routines, { id: uid(), gym: session.gym || m.activeGym, name, exercises }] }));
+    setMeta((m) => ({ ...m, routines: [...m.routines, { id: uid(), gym: session.gym || m.activeGym, name, exercises, updated: Date.now() }] }));
     flash("Saved as new routine.");
   };
 
   const deleteWorkout = (w) => {
     if (!window.confirm(`Delete "${w.name}" (${fmtDate(w.date)})? This can't be undone.`)) return;
     setWorkouts((prev) => prev.filter((x) => x.id !== w.id));
+    setMeta((m) => withTomb(m, "workouts", w.id, Date.now()));
   };
   const deleteRoutine = (r) => {
     if (!window.confirm(`Delete routine "${r.name}"?`)) return;
-    setMeta((m) => ({ ...m, routines: m.routines.filter((x) => x.id !== r.id) }));
+    setMeta((m) => withTomb({ ...m, routines: m.routines.filter((x) => x.id !== r.id) }, "routines", r.id, Date.now()));
   };
   const renameRoutine = (id, name) =>
-    setMeta((m) => ({ ...m, routines: m.routines.map((r) => (r.id === id ? { ...r, name } : r)) }));
+    setMeta((m) => ({ ...m, routines: m.routines.map((r) => (r.id === id ? { ...r, name, updated: Date.now() } : r)) }));
 
   /* ------------------------------ screens -------------------------------- */
   if (loading)
@@ -893,6 +940,7 @@ export default function App() {
       {/* settings */}
       {showSettings && (
         <Sheet onClose={() => setShowSettings(false)} title="Settings">
+          <SyncSettings sync={sync} onExportAll={exportAll} />
           <SettingRow label="Weight increment" hint="Step size for the +/- buttons">
             <Stepper value={settings.increment} step={2.5} suffix={U} onChange={(v) => setSetting("increment", v || 2.5)} />
           </SettingRow>
@@ -943,7 +991,12 @@ export default function App() {
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <Header title="Today" sub={new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} />
-          <button onClick={() => setShowSettings(true)} style={{ ...miniBtn, padding: "8px" }} aria-label="settings"><SettingsIcon size={16} /></button>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button onClick={() => setShowSettings(true)} style={{ ...miniBtn, color: sync.state === "error" ? C.bad : C.muted }} aria-label="sync status">
+              {sync.state === "off" ? "Not synced" : sync.state === "syncing" ? "Syncing…" : sync.state === "offline" ? "Offline" : sync.state === "error" ? "Sync problem" : `Synced ${ago(sync.lastSync) || ""}`}
+            </button>
+            <button onClick={() => setShowSettings(true)} style={{ ...miniBtn, padding: "8px" }} aria-label="settings"><SettingsIcon size={16} /></button>
+          </div>
         </div>
 
         <GymSwitch />
@@ -1264,7 +1317,7 @@ const SubLabel = ({ children }) => (
 function Sheet({ children, onClose, title }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, background: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTop: `1px solid ${C.line}`, padding: 16, maxHeight: "80vh" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, background: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTop: `1px solid ${C.line}`, padding: 16, maxHeight: "80vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontSize: 17, fontWeight: 700 }}>{title}</div>
           <button onClick={onClose} style={miniBtn}><X size={16} /></button>
