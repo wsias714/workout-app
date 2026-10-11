@@ -6,7 +6,7 @@ the Dropbox folder stays small. Pattern and rules: the `mobile-dropbox-sync` ski
 (`~/.claude/skills/mobile-dropbox-sync`), first built in `~/Projects/ListenMore`.
 
 ## Who writes what
-Dropbox folder `Apps/GymTracker/` (a Dropbox "App folder": the app can reach nothing else).
+Dropbox folder `Apps/WadeGymTracker/` (a Dropbox "App folder": the app can reach nothing else).
 
 | Path | Written by | Contents |
 |---|---|---|
@@ -41,11 +41,11 @@ One writer per file. Writes are rev-checked: on a conflict the app re-reads, mer
 Saved to device-local `gym:session` on every change and restored on reload (up to 12 hours old). Never synced.
 
 ## One-time setup
-1. <https://www.dropbox.com/developers/apps> -> Create app -> Scoped access -> App folder -> name `GymTracker`.
+1. <https://www.dropbox.com/developers/apps> -> Create app -> Scoped access -> App folder -> name `WadeGymTracker` ("GymTracker" was taken; names are global).
 2. Permissions: `files.metadata.read/write`, `files.content.read/write` -> Submit.
-3. Settings -> OAuth 2: Redirect URIs (add each): the live Pages URL (with trailing slash),
+3. Settings -> OAuth 2: Redirect URIs (add each): `https://wsias714.github.io/workout-app/`,
    `http://localhost:5173/`, `http://localhost:4173/`. Allow public clients (PKCE). Short-lived tokens.
-4. Put the App key in `src/config.ts` (public under PKCE; never add a secret).
+4. App key `g2xf5zqvdss6wi8` is in `src/config.ts` (public under PKCE; never add a secret).
 5. On the phone: Settings (gear) -> Connect Dropbox. If the sign-in doesn't return to the app, use "Use a code".
 
 Note: `vite.config.js` uses `base: "./"`, so the redirect URI is built from `location.pathname`,
