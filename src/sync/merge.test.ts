@@ -91,3 +91,9 @@ test("old data with no tomb/settingsAt fields merges fine", () => {
   const m = mergeData(legacy, data());
   assert.deepEqual(ids(m.workouts), ["a"]);
 });
+
+test("sameData ignores object key order (a file written by an older build vs a merged copy)", () => {
+  const a = { workouts: [], activity: [], meta: { gyms: [], activeGym: "g", routines: [], customExercises: [], settings: {}, tomb: { workouts: {}, routines: {} }, settingsAt: 0 } };
+  const b = { workouts: [], activity: [], meta: { settingsAt: 0, settings: {}, tomb: { routines: {}, workouts: {} }, customExercises: [], routines: [], activeGym: "g", gyms: [] } };
+  assert.ok(sameData(a as never, b as never));
+});

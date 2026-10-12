@@ -14,7 +14,13 @@ import type { Activity, GymData, Meta, Routine, Workout } from "./types.ts";
 export const TOMBSTONE_DAYS = 180;
 const DAY = 86_400_000;
 
-const canon = (x: unknown) => JSON.stringify(x);
+/** JSON with sorted keys, so two equal objects built in different key order compare equal. */
+const canon = (x: unknown): string =>
+  JSON.stringify(x, (_k, v) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
 /** Deterministic tie-break so merge(a, b) and merge(b, a) agree. */
 const pick = <T>(a: T, b: T): T => (canon(a) <= canon(b) ? a : b);
 
