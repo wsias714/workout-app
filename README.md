@@ -3,7 +3,8 @@
 A mobile-first strength-training log: Strong CSV import, per-exercise estimated-1RM
 charts, auto progressions, gym-aware routines (Main Gym / HOA Gym), rest timer, and
 JSON backup. Installs to the iPhone home screen as a standalone app. Data is stored
-locally on the device (localStorage).
+locally on the device (localStorage) and, once connected, synced to Dropbox
+(see `docs/sync.md`).
 
 Built with React + Vite. No backend, no accounts, free to host.
 
