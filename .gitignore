@@ -9,3 +9,8 @@ npm-debug.log*
 
 # real phone backups, never commit
 .local/
+
+# local tooling
+.claude/
+.idea/
+.pytest_cache/
