@@ -8,7 +8,9 @@
  * `app` must be a key of ai-housekeeping/config/feedback-apps.json. How the item travels is the app's choice:
  *   upload(item)   store it somewhere the collector reads (Dropbox: feedback/<id>.json). Throw to retry later.
  *   endpoint       POST the item as JSON to a same-origin route (desktop apps).
- *   neither        saved on the device; the panel offers an "Email it" link (mailto) instead.
+ *   neither        saved on the device; the panel offers an "Email it" link (mailto) instead. The address is never in
+ *                  the code (these repos are public): pass `email` from a private place, or the panel asks for it once
+ *                  and keeps it on the device.
  * Items are saved on the device first, so a failed or offline send is retried on the next load or "online".
  */
 
@@ -38,7 +40,7 @@ function el(tag, css, props) {
 }
 
 export function initFeedback(opts) {
-  const o = Object.assign({ version: "", hold: 0, bottom: 14, side: "right", email: "wadesias@gmail.com", label: "Feedback" }, opts);
+  const o = Object.assign({ version: "", hold: 0, bottom: 14, side: "right", email: "", label: "Feedback" }, opts);
   if (!o.app || document.getElementById("app-feedback-root")) return { flush: () => Promise.resolve() };
   const QKEY = "app-feedback-queue:" + o.app;
 
@@ -68,8 +70,10 @@ export function initFeedback(opts) {
     return flushing;
   }
 
+  const EKEY = "app-feedback-email";
+  const addr = () => { try { return o.email || localStorage.getItem(EKEY) || ""; } catch { return o.email; } };
   const mailto = (item) =>
-    "mailto:" + o.email + "?subject=" + encodeURIComponent(`[feedback:${o.app}] ${item.text.slice(0, 60)}`) +
+    "mailto:" + addr() + "?subject=" + encodeURIComponent(`[feedback:${o.app}] ${item.text.slice(0, 60)}`) +
     "&body=" + encodeURIComponent(`${item.text}\n\nDevice: ${item.device.kind} ${item.device.screen} v${item.version}`);
 
   // ---- UI -------------------------------------------------------------------------------------------------
@@ -92,12 +96,13 @@ export function initFeedback(opts) {
   const row = el("div", { display: "flex", gap: "8px" });
   const send = el("button", { flex: "1", padding: "10px", fontSize: "15px", fontWeight: "600", borderRadius: "8px", border: "0", background: GOLD, color: "#111", cursor: "pointer" }, { type: "button", textContent: "Send" });
   const close = el("button", { padding: "10px 14px", fontSize: "15px", borderRadius: "8px", border: "1px solid rgba(255,255,255,.25)", background: "transparent", color: "#f2f2f2", cursor: "pointer" }, { type: "button", textContent: "Close" });
+  const who = el("input", { display: "none", width: "100%", boxSizing: "border-box", fontSize: "16px", padding: "8px", margin: "0 0 6px", borderRadius: "8px", border: "1px solid rgba(255,255,255,.25)", background: "#101014", color: "#f2f2f2" }, { type: "email", placeholder: "Your email, to send it by mail (kept on this device)" });
   const mail = el("a", { display: "none", fontSize: "13px", color: GOLD, margin: "0 0 6px" }, { textContent: "Email it instead", target: "_blank", rel: "noopener" });
   row.append(send, close);
-  panel.append(title, chips, box, msg, mail, row);
+  panel.append(title, chips, box, msg, who, mail, row);
   root.append(panel, fab);
 
-  const open = () => { panel.style.display = "block"; msg.textContent = ""; mail.style.display = "none"; paint(); box.focus(); };
+  const open = () => { panel.style.display = "block"; msg.textContent = ""; mail.style.display = "none"; who.style.display = "none"; paint(); box.focus(); };
   const hide = () => { panel.style.display = "none"; };
   close.onclick = hide;
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
@@ -128,8 +133,12 @@ export function initFeedback(opts) {
       setTimeout(hide, 1600);
     } else {
       msg.textContent = o.upload || o.endpoint ? "Saved on this device; it will send when you are back online." : "Saved on this device.";
-      mail.href = mailto(item);
-      mail.style.display = "inline-block";
+      const show = () => { mail.href = mailto(item); mail.style.display = "inline-block"; who.style.display = "none"; };
+      if (addr()) show();
+      else {
+        who.style.display = "block";
+        who.onchange = () => { try { localStorage.setItem(EKEY, who.value.trim()); } catch { /* keep going */ } if (addr()) show(); };
+      }
     }
   };
 
