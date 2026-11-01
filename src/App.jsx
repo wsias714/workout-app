@@ -6,7 +6,7 @@ import {
 import {
   Dumbbell, Plus, Minus, Check, Clock, TrendingUp, History as HistoryIcon,
   ListChecks, Upload, Download, X, Search, Flame, Trash2,
-  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil, Brain, Heart, MoreHorizontal,
+  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil, Brain, Heart, MoreHorizontal, ChevronLeft,
 } from "lucide-react";
 import { C, MONO, SANS } from "./lib/theme";
 import { uid, num, epley, fmtDate, fmtShort, dayKey, setsForExercise } from "./lib/helpers";
@@ -317,6 +317,7 @@ const SettingRow = ({ label, hint, children }) => (
 /* ================================ APP ==================================== */
 export default function App() {
   const [tab, setTab] = useState("today");
+  const [openWorkoutId, setOpenWorkoutId] = useState(null); // History detail view
   const [loading, setLoading] = useState(true);
   const [workouts, setWorkouts] = useState([]);
   const [activity, setActivity] = useState([]); // Apple Health cardio/activity log
@@ -753,10 +754,24 @@ export default function App() {
     flash("Saved as new routine.");
   };
 
+  // Turn a logged workout into a saved routine: one entry per exercise, using
+  // its set count and the first set's reps/weight (same shape as saveAsRoutine).
+  const saveWorkoutAsRoutine = (w) => {
+    const exercises = w.exercises.map((e) => ({
+      name: e.name,
+      sets: e.sets.length,
+      reps: e.sets[0]?.reps || settings.repLow,
+      weight: e.sets[0]?.weight || 0,
+    }));
+    setMeta((m) => ({ ...m, routines: [...m.routines, { id: uid(), gym: w.gym || m.activeGym, name: w.name, exercises, updated: Date.now() }] }));
+    flash(`Saved "${w.name}" as a routine.`);
+  };
+
   const deleteWorkout = (w) => {
     if (!window.confirm(`Delete "${w.name}" (${fmtDate(w.date)})? This can't be undone.`)) return;
     setWorkouts((prev) => prev.filter((x) => x.id !== w.id));
     setMeta((m) => withTomb(m, "workouts", w.id, Date.now()));
+    setOpenWorkoutId(null);
   };
   const deleteRoutine = (r) => {
     if (!window.confirm(`Delete routine "${r.name}"?`)) return;
@@ -1073,6 +1088,33 @@ export default function App() {
     const [showAllActivity, setShowAllActivity] = useState(false);
     const prettyType = (t) => t.replace(/([a-z])([A-Z])/g, "$1 $2");
     const shownActivity = showAllActivity ? activity.slice(0, 50) : activity.slice(0, 5);
+    const open = openWorkoutId && workouts.find((x) => x.id === openWorkoutId);
+    if (open) {
+      const vol = open.exercises.reduce((a, e) => a + e.sets.reduce((x, s) => x + s.weight * s.reps, 0), 0);
+      return (
+        <div>
+          <button onClick={() => setOpenWorkoutId(null)} style={{ ...ghostBtn, marginBottom: 10 }}><ChevronLeft size={16} />History</button>
+          <Header title={open.name} sub={`${fmtDate(open.date)}${open.gym ? ` · ${gymName(open.gym)}` : ""}`} />
+          <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+            <Stat label="Exercises" value={open.exercises.length} />
+            <Stat label="Sets" value={open.exercises.reduce((a, e) => a + e.sets.length, 0)} />
+            <Stat label="Volume" value={Math.round(vol).toLocaleString()} unit={U} color={C.cyan} />
+          </div>
+          {open.exercises.map((e, i) => (
+            <div key={i} style={{ ...cardStatic, marginBottom: 10 }}>
+              <div style={{ color: C.ink, fontSize: 15, fontWeight: 600, marginBottom: 6 }}>{e.name}</div>
+              {e.sets.map((s, j) => (
+                <div key={j} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderTop: j ? `1px solid ${C.line}` : "none", fontSize: 13 }}>
+                  <span style={{ color: C.muted, fontFamily: MONO }}>Set {j + 1}</span>
+                  <span style={{ color: C.ink, fontFamily: MONO }}>{s.weight} {U} × {s.reps}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          <button onClick={() => saveWorkoutAsRoutine(open)} style={primaryBtn}><ListChecks size={16} />Save as routine</button>
+        </div>
+      );
+    }
     return (
       <div>
         <Header title="History" sub={`${workouts.length} workouts${activity.length ? ` · ${activity.length} Apple Health sessions` : ""}`} />
@@ -1103,7 +1145,7 @@ export default function App() {
           const totalSets = w.exercises.reduce((a, e) => a + e.sets.length, 0);
           const vol = w.exercises.reduce((a, e) => a + e.sets.reduce((x, s) => x + s.weight * s.reps, 0), 0);
           return (
-            <div key={w.id} style={{ ...cardStatic, marginBottom: 10 }}>
+            <div key={w.id} onClick={() => setOpenWorkoutId(w.id)} style={{ ...cardStatic, marginBottom: 10, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
                   <div style={{ color: C.ink, fontSize: 15, fontWeight: 600 }}>
@@ -1111,7 +1153,7 @@ export default function App() {
                   </div>
                   <div style={{ color: C.muted, fontSize: 12 }}>{fmtDate(w.date)}{w.gym ? ` · ${gymName(w.gym)}` : ""}</div>
                 </div>
-                <button onClick={() => deleteWorkout(w)} style={miniBtn}><Trash2 size={14} /></button>
+                <button onClick={(ev) => { ev.stopPropagation(); deleteWorkout(w); }} style={miniBtn}><Trash2 size={14} /></button>
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
                 <Stat label="Exercises" value={w.exercises.length} />
