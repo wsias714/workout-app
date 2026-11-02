@@ -6,7 +6,7 @@ import {
 import {
   Dumbbell, Plus, Minus, Check, Clock, TrendingUp, History as HistoryIcon,
   ListChecks, Upload, Download, X, Search, Flame, Trash2,
-  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil, Brain, Heart, MoreHorizontal, ChevronLeft,
+  Play, RotateCcw, Settings as SettingsIcon, Sparkles, Pencil, Brain, Heart, MoreHorizontal, ChevronLeft, MessageSquare,
 } from "lucide-react";
 import { C, MONO, SANS } from "./lib/theme";
 import { uid, num, epley, fmtDate, fmtShort, dayKey, setsForExercise } from "./lib/helpers";
@@ -14,6 +14,7 @@ import WorkoutListScreen from "./components/WorkoutListScreen";
 import WorkoutDetailScreen from "./components/WorkoutDetailScreen";
 import CoachScreen from "./components/CoachScreen";
 import { muscleOf } from "./lib/coach";
+import { openFeedback } from "./feedback.ts";
 import { useSync } from "./sync/useSync.ts";
 import { mergeData, withTomb } from "./sync/merge.ts";
 import SyncSettings, { ago } from "./components/SyncSettings";
@@ -968,6 +969,9 @@ export default function App() {
           <SettingRow label="Rep range — high" hint="Add weight once every set hits this">
             <Stepper value={settings.repHigh} step={1} onChange={(v) => setSetting("repHigh", v || settings.repLow + 1)} />
           </SettingRow>
+          <button onClick={openFeedback} style={{ ...ghostBtn, width: "100%", justifyContent: "center", marginTop: 14 }}>
+            <MessageSquare size={16} /> Send feedback
+          </button>
           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
             {[["lb", "Pounds"], ["kg", "Kilograms"]].map(([u, lbl]) => (
               <button key={u} onClick={() => setSetting("unit", u)} style={{ flex: 1, padding: "10px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", border: `1px solid ${settings.unit === u ? C.amber : C.line}`, background: settings.unit === u ? C.amberDim : C.surface, color: settings.unit === u ? C.amber : C.muted }}>

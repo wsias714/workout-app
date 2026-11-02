@@ -4,10 +4,17 @@ import { ConflictError } from "./sync/remote.ts";
 
 /** In-app Feedback button (shared module, see ~/Projects/_shared/feedback). Items go to Dropbox
     Apps/WadeGymTracker/feedback/ using the same sign-in as sync; offline or signed out, they wait on the device. */
+let opener: (() => void) | null = null;
+
+/** Opens the Feedback panel (called from Settings). */
+export function openFeedback() {
+  opener?.();
+}
+
 export function startFeedback() {
-  initFeedback({
+  const fb = initFeedback({
     app: "workout",
-    bottom: 76,
+    fab: false, // no floating button (it overlapped the rest timer); opened from Settings instead
     upload: async (item) => {
       if (!isConnected()) throw new Error("not connected to Dropbox");
       try {
@@ -17,4 +24,5 @@ export function startFeedback() {
       }
     },
   });
+  opener = fb.open;
 }
