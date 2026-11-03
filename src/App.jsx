@@ -1198,11 +1198,16 @@ export default function App() {
     }, [workouts]);
     const [sel, setSel] = useState("");
     const [query, setQuery] = useState("");
+    const [mode, setMode] = useState("exercise");
+    const [routineSel, setRoutineSel] = useState("");
+    const routineList = meta.routines || [];
+    const activeRoutine = routineList.find((r) => r.id === routineSel) || routineList[0] || null;
     useEffect(() => {
       if (!sel && names.length) setSel(names[0]);
     }, [names, sel]);
     const current = sel || names[0] || "";
-    const filtered = query ? names.filter((n) => n.toLowerCase().includes(query.toLowerCase())) : names;
+    // no search text: the 10 most-logged exercises; searching looks through all of them
+    const filtered = query ? names.filter((n) => n.toLowerCase().includes(query.toLowerCase())) : names.slice(0, 10);
     const sessions = current ? setsForExercise(workouts, current) : [];
     const data = sessions.map((s) => ({ d: fmtShort(s.date), e1rm: Math.round(s.e1rm), top: Math.max(...s.sets.map((x) => x.weight)) }));
     const bestE = sessions.length ? Math.max(...sessions.map((s) => s.e1rm)) : 0;
@@ -1221,12 +1226,72 @@ export default function App() {
     return (
       <div>
         <Header title="Progress" />
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          {[["exercise", "Exercises"], ["routine", "Routines"]].map(([k, label]) => (
+            <button key={k} onClick={() => setMode(k)} style={{ flex: 1, padding: "8px 12px", borderRadius: 999, border: `1px solid ${mode === k ? C.amber : C.line}`, background: mode === k ? C.amberDim : C.surface, color: mode === k ? C.amber : C.muted, fontSize: 13, cursor: "pointer" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {mode === "routine" ? (
+          <div>
+            {!routineList.length ? (
+              <div style={emptyBox}><div style={{ color: C.muted }}>No routines yet. Build one to see its charts together.</div></div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6, marginBottom: 10 }}>
+                  {routineList.map((r) => {
+                    const on = activeRoutine && activeRoutine.id === r.id;
+                    return (
+                      <button key={r.id} onClick={() => setRoutineSel(r.id)} style={{ whiteSpace: "nowrap", padding: "8px 12px", borderRadius: 999, border: `1px solid ${on ? C.amber : C.line}`, background: on ? C.amberDim : C.surface, color: on ? C.amber : C.muted, fontSize: 13, cursor: "pointer" }}>
+                        {r.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {(activeRoutine.exercises || []).map((ex) => {
+                  const ss = setsForExercise(workouts, ex.name);
+                  const dd = ss.map((x) => ({ d: fmtShort(x.date), e1rm: Math.round(x.e1rm) }));
+                  const first = ss.length ? Math.round(ss[0].e1rm) : 0;
+                  const last = ss.length ? Math.round(ss[ss.length - 1].e1rm) : 0;
+                  return (
+                    <div key={ex.name} style={{ ...cardStatic, marginBottom: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                        <div style={{ color: C.ink, fontSize: 14, fontWeight: 600 }}>{ex.name}</div>
+                        {ss.length > 0 && (
+                          <div style={{ color: last >= first ? C.cyan : C.muted, fontSize: 12, whiteSpace: "nowrap" }}>
+                            {first}→{last}{U} e1RM
+                          </div>
+                        )}
+                      </div>
+                      {dd.length > 1 ? (
+                        <div style={{ height: 110 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={dd} margin={{ top: 4, right: 8, left: -22, bottom: 0 }}>
+                              <CartesianGrid stroke={C.line} vertical={false} />
+                              <XAxis dataKey="d" tick={{ fill: C.muted, fontSize: 9 }} tickLine={false} axisLine={{ stroke: C.line }} />
+                              <YAxis tick={{ fill: C.muted, fontSize: 9 }} tickLine={false} axisLine={false} width={40} domain={["auto", "auto"]} />
+                              <Tooltip contentStyle={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 10, color: C.ink }} labelStyle={{ color: C.muted }} />
+                              <Line type="monotone" dataKey="e1rm" stroke={C.amber} strokeWidth={2} dot={{ r: 2, fill: C.amber }} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      ) : (
+                        <div style={{ color: C.muted, fontSize: 12 }}>Need two logged sessions to chart a trend.</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        ) : (<>
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <Search size={16} color={C.muted} />
             <input
               type="text"
-              placeholder="Filter exercises…"
+              placeholder="Search all exercises…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               style={{ flex: 1, border: `1px solid ${C.line}`, borderRadius: 14, padding: "10px 12px", fontSize: 14, color: C.ink, background: C.surface }}
@@ -1277,6 +1342,7 @@ export default function App() {
         ) : (
           <div style={emptyBox}><div style={{ color: C.muted }}>Need at least two sessions of {current} to chart a trend.</div></div>
         )}
+        </>)}
       </div>
     );
   }
