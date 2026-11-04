@@ -17,6 +17,7 @@ import { muscleOf } from "./lib/coach";
 import { prsByWorkout, prsFor } from "./lib/prs.ts";
 import { openFeedback } from "./feedback.ts";
 import { useSync } from "./sync/useSync.ts";
+import { useCoachReview } from "./sync/useCoachReview.ts";
 import { mergeData, withTomb } from "./sync/merge.ts";
 import SyncSettings, { ago } from "./components/SyncSettings";
 
@@ -397,6 +398,7 @@ export default function App() {
     if (next.activity !== cur.activity) setActivity(next.activity);
   }, []);
   const sync = useSync(lib, applyLib, flash, ready);
+  const coachReview = useCoachReview(sync.connected, sync.lastSync);
 
   /* derived: full exercise catalog */
   const catalog = useMemo(() => {
@@ -900,7 +902,7 @@ export default function App() {
         )}
         {tab === "history" && <HistoryScreen />}
         {tab === "progress" && <ProgressScreen />}
-        {tab === "coach" && <CoachScreen workouts={workouts} activity={activity} onExport={exportJSON} />}
+        {tab === "coach" && <CoachScreen workouts={workouts} activity={activity} onExport={exportJSON} review={coachReview} />}
         {tab === "routines" && <RoutinesScreen />}
       </div>
 

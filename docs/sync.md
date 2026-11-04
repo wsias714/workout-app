@@ -14,7 +14,8 @@ Dropbox folder `Apps/WadeGymTracker/` (a Dropbox "App folder": the app can reach
 | `archive/<year>.json` | the app | full-detail workouts that were rolled up (cold storage) |
 | `backups/premigration-*.json` | the app, once per phone | safety copy before the first sync |
 | `backups/auto-YYYY-MM-DD.json` | the app, weekly | copy of the file about to be replaced |
-| `inbox/`, `coach.json` | reserved | phase 2: Health auto-export drops, scheduled coach output |
+| `coach.json` | desktop job (ai-housekeeping `bin/coach_review.py`, Fridays) | weekly coach review; the app only reads it (`src/sync/coachReview.ts`), never merges or writes it |
+| `inbox/` | reserved | phase 2: Health auto-export drops |
 
 One writer per file. Writes are rev-checked: on a conflict the app re-reads, merges and retries.
 

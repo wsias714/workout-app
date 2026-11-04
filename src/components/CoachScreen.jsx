@@ -10,7 +10,7 @@ const LEVELS = {
   info: { border: C.line, bg: C.surface, label: "Note", labelColor: C.muted },
 };
 
-export default function CoachScreen({ workouts, activity, onExport }) {
+export default function CoachScreen({ workouts, activity, onExport, review }) {
   const insights = useMemo(() => analyzeCoach(workouts, activity), [workouts, activity]);
   const benchmarks = useMemo(() => muscleBenchmarks(workouts), [workouts]);
   const [selected, setSelected] = useState(null);
@@ -38,6 +38,7 @@ export default function CoachScreen({ workouts, activity, onExport }) {
   return (
     <div>
       <Header />
+      <WeeklyReview review={review} />
 
       <div style={{ ...card, marginBottom: 12 }}>
         <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>
@@ -103,6 +104,25 @@ export default function CoachScreen({ workouts, activity, onExport }) {
     </div>
   );
 }
+
+const WeeklyReview = ({ review }) => {
+  if (!review) return null;
+  const when = new Date(review.generatedAt || review.week + "T12:00:00");
+  return (
+    <div style={{ ...card, marginBottom: 12, borderLeft: `3px solid ${C.amber}` }}>
+      <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
+        Weekly coach review{isNaN(when) ? "" : ` · ${when.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: C.ink, margin: "6px 0 6px" }}>{review.headline}</div>
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.55, color: C.ink }}>
+        {review.points.map((p, i) => <li key={i}>{p}</li>)}
+      </ul>
+      {review.focus && (
+        <div style={{ fontSize: 13, lineHeight: 1.5, color: C.ink, marginTop: 8 }}><b>Next week:</b> {review.focus}</div>
+      )}
+    </div>
+  );
+};
 
 const Header = () => (
   <div style={{ marginBottom: 16 }}>
