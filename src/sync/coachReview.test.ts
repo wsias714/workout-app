@@ -22,3 +22,20 @@ test("drops blank points and caps the list", () => {
   const r = parseCoachReview(JSON.stringify({ ...good, points: ["a", " ", 5, "b", "c", "d", "e", "f", "g"] }));
   assert.deepEqual(r?.points, ["a", "b", "c", "d", "e", "f"]);
 });
+
+test("parses plan items and answers, tolerating junk", () => {
+  const r = parseCoachReview(JSON.stringify({
+    ...good,
+    plan: [{ focus: "Pull day", why: "Rows are thin" }, { focus: "" }, 7],
+    answers: [{ id: "ab12", q: "Wrist?", a: "Keep it neutral.", at: "2026-11-06T18:00:00Z" }, { id: "", a: "x" }, { id: "z", a: "" }],
+  }));
+  assert.deepEqual(r?.plan, [{ focus: "Pull day", why: "Rows are thin" }]);
+  assert.equal(r?.answers.length, 1);
+  assert.equal(r?.answers[0].a, "Keep it neutral.");
+});
+
+test("older reviews with no plan or answers still parse", () => {
+  const r = parseCoachReview(JSON.stringify(good));
+  assert.deepEqual(r?.plan, []);
+  assert.deepEqual(r?.answers, []);
+});

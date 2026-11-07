@@ -24,6 +24,7 @@ Built with React + Vite. No backend, no accounts, free to host.
   (Health app → Export All Health Data); shown in History and counted by the Coach
 - **Data repairs** — known-bad rows from the original Strong export (e.g. the
   2,300 lb High Row typo) are auto-corrected on load and on every import
+- **Weekly review + Ask coach** — the Friday review now includes a plan for next week (workouts to focus on, with reasons), and the Coach tab has an Ask coach box: type a question (e.g. an ache on a lift) and it is answered in the next weekly review
 - **Gym Coach handoff** — import routines built by the Gym Coach skill in Claude
 
 ---

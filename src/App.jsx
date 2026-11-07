@@ -18,6 +18,7 @@ import { prsByWorkout, prsFor } from "./lib/prs.ts";
 import { openFeedback } from "./feedback.ts";
 import { useSync } from "./sync/useSync.ts";
 import { useCoachReview } from "./sync/useCoachReview.ts";
+import { useCoachQuestions } from "./sync/useCoachQuestions.ts";
 import { mergeData, withTomb } from "./sync/merge.ts";
 import SyncSettings, { ago } from "./components/SyncSettings";
 
@@ -399,6 +400,8 @@ export default function App() {
   }, []);
   const sync = useSync(lib, applyLib, flash, ready);
   const coachReview = useCoachReview(sync.connected, sync.lastSync);
+  const coachAnsweredIds = useMemo(() => (coachReview?.answers || []).map((x) => x.id), [coachReview]);
+  const coachQ = useCoachQuestions(sync.connected, sync.lastSync, coachAnsweredIds);
 
   /* derived: full exercise catalog */
   const catalog = useMemo(() => {
@@ -902,7 +905,7 @@ export default function App() {
         )}
         {tab === "history" && <HistoryScreen />}
         {tab === "progress" && <ProgressScreen />}
-        {tab === "coach" && <CoachScreen workouts={workouts} activity={activity} onExport={exportJSON} review={coachReview} />}
+        {tab === "coach" && <CoachScreen workouts={workouts} activity={activity} onExport={exportJSON} review={coachReview} asked={coachQ.asked} onAsk={coachQ.ask} />}
         {tab === "routines" && <RoutinesScreen />}
       </div>
 

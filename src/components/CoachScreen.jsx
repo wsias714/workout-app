@@ -10,7 +10,7 @@ const LEVELS = {
   info: { border: C.line, bg: C.surface, label: "Note", labelColor: C.muted },
 };
 
-export default function CoachScreen({ workouts, activity, onExport, review }) {
+export default function CoachScreen({ workouts, activity, onExport, review, asked = [], onAsk }) {
   const insights = useMemo(() => analyzeCoach(workouts, activity), [workouts, activity]);
   const benchmarks = useMemo(() => muscleBenchmarks(workouts), [workouts]);
   const [selected, setSelected] = useState(null);
@@ -31,6 +31,7 @@ export default function CoachScreen({ workouts, activity, onExport, review }) {
             Log at least 4 workouts (or import your Strong CSV from the Today tab) so the Coach has something to analyze.
           </div>
         </div>
+        <AskCoach review={review} asked={asked} onAsk={onAsk} />
       </div>
     );
   }
@@ -39,6 +40,7 @@ export default function CoachScreen({ workouts, activity, onExport, review }) {
     <div>
       <Header />
       <WeeklyReview review={review} />
+      <AskCoach review={review} asked={asked} onAsk={onAsk} />
 
       <div style={{ ...card, marginBottom: 12 }}>
         <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>
@@ -120,6 +122,60 @@ const WeeklyReview = ({ review }) => {
       {review.focus && (
         <div style={{ fontSize: 13, lineHeight: 1.5, color: C.ink, marginTop: 8 }}><b>Next week:</b> {review.focus}</div>
       )}
+      {review.plan?.length > 0 && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+          <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Plan for next week</div>
+          {review.plan.map((p, i) => (
+            <div key={i} style={{ fontSize: 13, lineHeight: 1.5, color: C.ink, marginBottom: 6 }}>
+              <b>{p.focus}</b>{p.why ? <span style={{ color: C.muted }}> — {p.why}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AskCoach = ({ review, asked, onAsk }) => {
+  const [text, setText] = useState("");
+  const [note, setNote] = useState("");
+  const answers = review?.answers || [];
+  const waiting = asked.filter((x) => !answers.some((a) => a.id === x.id));
+  const submit = () => {
+    if (onAsk && onAsk(text)) {
+      setText("");
+      setNote("Saved. The coach answers in the next weekly review.");
+    }
+  };
+  return (
+    <div style={{ ...card, marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>Ask coach</div>
+      <p style={{ color: C.muted, fontSize: 12.5, lineHeight: 1.5, margin: "6px 0 8px" }}>
+        Form, aches, programming. For example: "Modest discomfort in my left wrist on bench press. What is the best way to address it?"
+        Questions are answered once a week, in the Friday review.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => { setText(e.target.value); setNote(""); }}
+        maxLength={500}
+        rows={3}
+        placeholder="Type your question"
+        style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${C.line}`, borderRadius: 10, padding: 10, fontSize: 14, fontFamily: "inherit", color: C.ink, background: C.surface, resize: "vertical" }}
+      />
+      <button onClick={submit} disabled={!text.trim()} style={{ ...exportBtn, marginTop: 8, opacity: text.trim() ? 1 : 0.5 }}>Send to coach</button>
+      {note && <div style={{ color: C.good, fontSize: 12.5, marginTop: 6 }}>{note}</div>}
+      {waiting.map((x) => (
+        <div key={x.id} style={{ marginTop: 10, fontSize: 13, color: C.ink, lineHeight: 1.5 }}>
+          <b>You asked:</b> {x.q}
+          <div style={{ color: C.muted, fontSize: 12 }}>{x.sent ? "Waiting for the next weekly review" : "Will send when you're online"}</div>
+        </div>
+      ))}
+      {answers.map((a) => (
+        <div key={a.id} style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}`, fontSize: 13, lineHeight: 1.55, color: C.ink }}>
+          <div style={{ color: C.muted }}><b>You asked:</b> {a.q}</div>
+          <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}><b>Coach:</b> {a.a}</div>
+        </div>
+      ))}
     </div>
   );
 };
