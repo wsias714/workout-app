@@ -814,6 +814,16 @@ export default function App() {
         </div>
       )}
 
+      {/* Settings (Dropbox, sync, feedback, backups) is reachable from every tab; Today has its own copy in its header. */}
+      {tab !== "today" && (
+        <div style={{ position: "fixed", top: "calc(14px + env(safe-area-inset-top))", right: "max(16px, calc((100vw - 480px) / 2 + 16px))", zIndex: 40, display: "flex", gap: 6, alignItems: "center" }}>
+          <button onClick={() => setShowSettings(true)} style={{ ...miniBtn, color: sync.state === "error" ? C.bad : C.muted }} aria-label="sync status">
+            {sync.state === "off" ? "Not synced" : sync.state === "syncing" ? "Syncing…" : sync.state === "offline" ? "Offline" : sync.state === "error" ? "Sync problem" : `Synced ${ago(sync.lastSync) || ""}`}
+          </button>
+          <button onClick={() => setShowSettings(true)} style={{ ...miniBtn, padding: "8px" }} aria-label="settings"><SettingsIcon size={16} /></button>
+        </div>
+      )}
+
       <div style={{ padding: `calc(16px + env(safe-area-inset-top)) 16px ${rest.running ? 160 : 92}px` }}>
         {tab === "today" &&
           (session ? (

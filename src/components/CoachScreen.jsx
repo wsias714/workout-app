@@ -188,7 +188,7 @@ const Header = () => (
 );
 
 const card = { background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px", boxShadow: C.shadow };
-const emptyBox = { ...card, textAlign: "center", padding: "28px 18px", marginTop: 12 };
+const emptyBox = { ...card, textAlign: "center", padding: "28px 18px", marginTop: 12, marginBottom: 12 };
 const exportBtn = {
   width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
   background: C.amberDim, color: C.amber, border: "none", borderRadius: 12, padding: "12px",
