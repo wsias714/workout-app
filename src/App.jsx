@@ -693,6 +693,17 @@ export default function App() {
   const removeExercise = (ei) =>
     setSession((s) => ({ ...s, exercises: s.exercises.filter((_, i) => i !== ei) }));
 
+  // Skip from the exercise screen: drop it from this session (same as removing it on the list),
+  // then land on the next exercise, or back on the list if none are left.
+  const skipCurrentExercise = () => {
+    const ei = exIdx;
+    const left = session.exercises.length - 1;
+    removeExercise(ei);
+    if (left <= 0) { setWorkoutScreen("list"); setExIdx(0); }
+    else setExIdx(Math.min(ei, left - 1));
+    flash("Skipped. Use Save as routine on the list to keep it out of your routine.");
+  };
+
   const makeSummary = (sessionData) => {
     const completed = sessionData.exercises
       .map((e) => ({ name: e.name, sets: e.sets.filter((s) => s.done && s.reps > 0) }))
@@ -858,6 +869,7 @@ export default function App() {
                 onBack={() => setWorkoutScreen("list")}
                 onJump={setExIdx}
                 onFinish={finishSession}
+                onSkipExercise={skipCurrentExercise}
               />
             )
           ) : (

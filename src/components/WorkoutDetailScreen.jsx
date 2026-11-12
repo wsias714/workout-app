@@ -60,7 +60,7 @@ function SetRow({ ex, ei, si, isLast, canDelete, maxHistE1rm, onUpdate, onToggle
 }
 
 export default function WorkoutDetailScreen({
-  session, workouts, exIdx, catalog, onUpdateSet, onToggleSet, onRemoveSet, onAddSet, onBack, onJump, onFinish,
+  session, workouts, exIdx, catalog, onUpdateSet, onToggleSet, onRemoveSet, onAddSet, onBack, onJump, onFinish, onSkipExercise,
 }) {
   const ex = session.exercises[exIdx];
   const ei = exIdx;
@@ -170,6 +170,15 @@ export default function WorkoutDetailScreen({
           {allDone ? (isLastExercise ? "Finish Workout ✓" : "Done · Next Exercise →") : "Check off sets above"}
         </button>
       </div>
+
+      {onSkipExercise && (
+        <button
+          onClick={() => { if (window.confirm(`Skip ${ex.name} for this workout?`)) onSkipExercise(); }}
+          style={{ marginTop: 10, width: "100%", padding: "9px", color: C.muted, border: `1px solid ${C.line}`, borderRadius: 11, fontSize: 13, fontWeight: 700, cursor: "pointer", background: "transparent" }}
+        >
+          Skip this exercise
+        </button>
+      )}
 
       <div style={{ height: 1, background: C.line, margin: "12px 0" }} />
       <HistoryPanel sessions={historySessions} />
