@@ -17,6 +17,7 @@ import { muscleOf } from "./lib/coach";
 import { prsByWorkout, prsFor } from "./lib/prs.ts";
 import { openFeedback } from "./feedback.ts";
 import { useSync } from "./sync/useSync.ts";
+import { applyTweak } from "./lib/routineTweak.ts";
 import { useCoachReview } from "./sync/useCoachReview.ts";
 import { useCoachQuestions } from "./sync/useCoachQuestions.ts";
 import { mergeData, withTomb } from "./sync/merge.ts";
@@ -613,6 +614,11 @@ export default function App() {
     setTab("today");
   };
 
+  const applyCoachTweak = (t) => {
+    setMeta((m) => ({ ...m, routines: applyTweak(m.routines, t, Date.now()) }));
+    flash("Routine updated.");
+  };
+
   const openRoutinePicker = (routine) => setPendingRoutine(routine);
 
   // Auto-load last workout: clone the most recent session (preferring this gym),
@@ -915,7 +921,7 @@ export default function App() {
         )}
         {tab === "history" && <HistoryScreen />}
         {tab === "progress" && <ProgressScreen />}
-        {tab === "coach" && <CoachScreen workouts={workouts} activity={activity} onExport={exportJSON} review={coachReview} asked={coachQ.asked} onAsk={coachQ.ask} />}
+        {tab === "coach" && <CoachScreen workouts={workouts} activity={activity} onExport={exportJSON} review={coachReview} asked={coachQ.asked} onAsk={coachQ.ask} routines={meta.routines} onApplyTweak={applyCoachTweak} />}
         {tab === "routines" && <RoutinesScreen />}
       </div>
 

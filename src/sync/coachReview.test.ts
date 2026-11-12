@@ -39,3 +39,19 @@ test("older reviews with no plan or answers still parse", () => {
   assert.deepEqual(r?.plan, []);
   assert.deepEqual(r?.answers, []);
 });
+
+test("parses routine tweaks, dropping malformed ones", () => {
+  const r = parseCoachReview(JSON.stringify({
+    ...good,
+    tweaks: [
+      { routine: "r1", routineName: "Leg Day", exercise: "Squat", from: 255, weight: 260, reps: 8, why: "hit 12" },
+      { routine: "r1", exercise: "Squat", weight: "x" },
+      { routine: "", exercise: "Squat", weight: 5 },
+      { routine: "r2", exercise: "Row", weight: 100, reps: 99 },
+    ],
+  }));
+  assert.equal(r?.tweaks.length, 2);
+  assert.equal(r?.tweaks[0].reps, 8);
+  assert.equal(r?.tweaks[1].reps, undefined);
+  assert.deepEqual(parseCoachReview(JSON.stringify(good))?.tweaks, []);
+});

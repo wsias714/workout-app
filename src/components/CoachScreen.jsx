@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { Download, Upload } from "lucide-react";
-import { C } from "../lib/theme";
+import { C, MONO } from "../lib/theme";
 import { analyzeCoach, muscleBenchmarks } from "../lib/coach";
 import BodyMap from "./BodyMap";
+import { storedWeight } from "../lib/routineTweak.ts";
 
 const LEVELS = {
   warn: { border: C.pr, bg: "#FEF6E7", label: "Fix", labelColor: C.pr },
@@ -10,7 +11,7 @@ const LEVELS = {
   info: { border: C.line, bg: C.surface, label: "Note", labelColor: C.muted },
 };
 
-export default function CoachScreen({ workouts, activity, onExport, review, asked = [], onAsk }) {
+export default function CoachScreen({ workouts, activity, onExport, review, asked = [], onAsk, routines = [], onApplyTweak }) {
   const insights = useMemo(() => analyzeCoach(workouts, activity), [workouts, activity]);
   const benchmarks = useMemo(() => muscleBenchmarks(workouts), [workouts]);
   const [selected, setSelected] = useState(null);
@@ -39,7 +40,7 @@ export default function CoachScreen({ workouts, activity, onExport, review, aske
   return (
     <div>
       <Header />
-      <WeeklyReview review={review} />
+      <WeeklyReview review={review} routines={routines} onApplyTweak={onApplyTweak} />
       <AskCoach review={review} asked={asked} onAsk={onAsk} />
 
       <div style={{ ...card, marginBottom: 12 }}>
@@ -107,7 +108,7 @@ export default function CoachScreen({ workouts, activity, onExport, review, aske
   );
 }
 
-const WeeklyReview = ({ review }) => {
+const WeeklyReview = ({ review, routines, onApplyTweak }) => {
   if (!review) return null;
   const when = new Date(review.generatedAt || review.week + "T12:00:00");
   return (
@@ -132,6 +133,39 @@ const WeeklyReview = ({ review }) => {
           ))}
         </div>
       )}
+      <RoutineTweaks tweaks={review.tweaks} routines={routines} onApply={onApplyTweak} />
+    </div>
+  );
+};
+
+// Coach's suggested stored-weight changes for the saved routines. Normal starts at the stored weight,
+// Push at +1 increment, Reset at -2, so moving the stored weight moves all three. Applying is a routine edit.
+const RoutineTweaks = ({ tweaks, routines, onApply }) => {
+  if (!tweaks?.length || !onApply) return null;
+  const rows = tweaks
+    .map((t) => ({ t, now: storedWeight(routines, t) }))
+    .filter((x) => x.now !== null);
+  if (!rows.length) return null;
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+      <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Routine weight tweaks</div>
+      {rows.map(({ t, now }, i) => {
+        const done = now === t.weight;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1, fontSize: 13, lineHeight: 1.45, color: C.ink }}>
+              <b>{t.exercise}</b> <span style={{ color: C.muted }}>· {t.routineName || "routine"}</span>
+              <div style={{ fontFamily: MONO, fontSize: 13 }}>{now} → {t.weight}{t.reps ? ` × ${t.reps}` : ""}</div>
+              {t.why ? <div style={{ color: C.muted, fontSize: 12 }}>{t.why}</div> : null}
+            </div>
+            {done ? (
+              <span style={{ color: C.good, fontSize: 12, fontWeight: 700 }}>Applied</span>
+            ) : (
+              <button onClick={() => onApply(t)} style={{ border: `1px solid ${C.amber}`, background: C.amberDim, color: C.amber, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Apply</button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };

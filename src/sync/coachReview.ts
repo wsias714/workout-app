@@ -13,11 +13,14 @@ export interface CoachReview {
   focus: string;
   /** Upcoming-week recommendations: which workouts to focus on and why. Optional (older reviews have none). */
   plan: CoachPlanItem[];
+  /** Suggested routine weight changes (stored weight = the "normal" start; push/reset derive from it). Optional. */
+  tweaks: CoachTweak[];
   /** Replies to questions asked in the app, newest first. */
   answers: CoachAnswer[];
 }
 
 export interface CoachPlanItem { focus: string; why: string }
+export interface CoachTweak { routine: string; routineName: string; exercise: string; from: number; weight: number; reps?: number; why: string }
 export interface CoachAnswer { id: string; q: string; a: string; at: string }
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -43,6 +46,19 @@ export function parseCoachReview(text: string | null | undefined): CoachReview |
         .filter((p): p is CoachPlanItem => !!p && !!p.focus)
         .slice(0, 5)
     : [];
+  const tweaks = Array.isArray(r.tweaks)
+    ? r.tweaks
+        .map((x) => {
+          const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+          const weight = Number(o.weight);
+          const reps = Number(o.reps);
+          const t: CoachTweak = { routine: str(o.routine, 64), routineName: str(o.routineName, 40), exercise: str(o.exercise, 80), from: Number(o.from) || 0, weight, why: str(o.why, 200) };
+          if (Number.isInteger(reps) && reps >= 1 && reps <= 30) t.reps = reps;
+          return t;
+        })
+        .filter((t) => t.routine && t.exercise && Number.isFinite(t.weight) && t.weight >= 0)
+        .slice(0, 8)
+    : [];
   const answers = Array.isArray(r.answers)
     ? r.answers
         .map((x) => {
@@ -52,5 +68,5 @@ export function parseCoachReview(text: string | null | undefined): CoachReview |
         .filter((x) => x.id && x.a)
         .slice(0, 10)
     : [];
-  return { week, generatedAt: str(r.generatedAt, 40), headline, points, focus: str(r.focus, 300), plan, answers };
+  return { week, generatedAt: str(r.generatedAt, 40), headline, points, focus: str(r.focus, 300), plan, tweaks, answers };
 }

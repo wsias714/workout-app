@@ -14,7 +14,7 @@ Dropbox folder `Apps/WadeGymTracker/` (a Dropbox "App folder": the app can reach
 | `archive/<year>.json` | the app | full-detail workouts that were rolled up (cold storage) |
 | `backups/premigration-*.json` | the app, once per phone | safety copy before the first sync |
 | `backups/auto-YYYY-MM-DD.json` | the app, weekly | copy of the file about to be replaced |
-| `coach.json` | desktop job (ai-housekeeping `bin/coach_review.py`, Fridays) | weekly coach review; the app only reads it (`src/sync/coachReview.ts`), never merges or writes it |
+| `coach.json` | desktop job (ai-housekeeping `bin/coach_review.py`, Fridays) | weekly coach review; the app only reads it (`src/sync/coachReview.ts`), never merges or writes it. Its `tweaks` list suggests routine weight changes; the Coach tab's Apply button edits the routine through `applyTweak` (`src/lib/routineTweak.ts`, stamps `updated`), so it syncs as an ordinary routine edit |
 | `coach-questions/<id>.json` | the app (Coach tab → Ask coach), one new file per question, create-only | the Friday job answers each into `coach.json` `answers`, then moves the file to `coach-questions/done/` |
 | `inbox/` | reserved | phase 2: Health auto-export drops |
 
