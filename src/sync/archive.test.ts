@@ -88,7 +88,7 @@ test("backup rotation keeps newest 3 plus newest per recent month, spares premig
   assert.ok(!del.some((p) => p.includes("premigration")));
   assert.ok(!del.includes("/backups/auto-2026-10-10.json"));
   assert.ok(!del.includes("/backups/auto-2026-09-26.json")); // newest in September
-  assert.ok(!del.includes("/backups/auto-2026-08-29.json")); // newest in August
+  assert.ok(!del.includes("/backups/auto-2026-08-29.json")); // newest of the month
   assert.ok(del.includes("/backups/auto-2026-09-12.json"));
   assert.ok(del.includes("/backups/auto-2025-01-05.json"));
 });
